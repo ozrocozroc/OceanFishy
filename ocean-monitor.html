@@ -228,8 +228,11 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <div id="spinner"><div class="spin"></div><span id="spin-txt">Loading…</span></div>
   <div id="status"></div>
 
-  <!-- Current-speed legend (Windy-style gradient bar), shown only while Currents is on -->
-  <div id="current-legend" style="display:none;position:absolute;bottom:10px;left:10px;z-index:460;background:rgba(18,28,46,.9);border:1px solid var(--bdrs);border-radius:8px;padding:7px 10px;backdrop-filter:blur(6px)">
+  <!-- Current-speed legend (Windy-style gradient bar), shown only while Currents is on.
+       Anchored top-left below the zoom control — bottom-left collided with the
+       Forecast panel (bottom-docked, full-width) on desktop and with the mobile
+       sidebar drawer (also bottom-docked) on small screens. -->
+  <div id="current-legend" style="display:none;position:absolute;top:120px;left:10px;z-index:460;background:rgba(18,28,46,.9);border:1px solid var(--bdrs);border-radius:8px;padding:7px 10px;backdrop-filter:blur(6px)">
     <div style="font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Current speed (kt)</div>
     <div style="height:8px;width:150px;border-radius:3px;background:linear-gradient(to right,rgb(36,60,150),rgb(45,120,196),rgb(74,177,206),rgb(112,204,171),rgb(171,221,164),rgb(230,245,152),rgb(254,224,139),rgb(253,174,97),rgb(213,62,79))"></div>
     <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-top:2px">
