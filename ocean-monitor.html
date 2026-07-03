@@ -185,18 +185,18 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 <!-- Layer bar -->
 <div id="lbar">
   <span class="lbl">Base</span>
-  <button class="lb base on" id="b-osm"  onclick="setBase('osm')">🗺 Street</button>
+  <button class="lb base"    id="b-osm"  onclick="setBase('osm')">🗺 Street</button>
   <button class="lb base"    id="b-ocean" onclick="setBase('ocean')">🌊 Ocean</button>
-  <button class="lb base"    id="b-sat"  onclick="setBase('sat')">🛰 Satellite</button>
+  <button class="lb base on" id="b-sat"  onclick="setBase('sat')">🛰 Satellite</button>
   <button class="lb base"    id="b-dark" onclick="setBase('dark')">🌑 Dark</button>
   <div class="sep"></div>
   <span class="lbl">Ocean layer</span>
-  <button class="lb sst on" id="b-sst" onclick="setLayer('sst')"><span class="bdot sst"></span>SST</button>
+  <button class="lb sst"    id="b-sst" onclick="setLayer('sst')"><span class="bdot sst"></span>SST</button>
   <button class="lb chl"    id="b-chl" onclick="setLayer('chl')" title="NOAA VIIRS weekly composite — ~2-3 week lag"><span class="bdot chl"></span>Chl (VIIRS)</button>
   <button class="lb chl"    id="b-chlOlci" onclick="setLayer('chlOlci')" title="Copernicus Sentinel-3 OLCI daily — ~2-3 day lag"><span class="bdot chl"></span>Chl (OLCI)</button>
   <button class="lb alt"    id="b-alt" onclick="setLayer('alt')"><span class="bdot alt"></span>Altimetry</button>
   <button class="lb depth"  id="b-depth" onclick="setLayer('depth')"><span class="bdot depth"></span>Depth</button>
-  <button class="lb"        id="b-off" onclick="setLayer('off')">Off</button>
+  <button class="lb on"     id="b-off" onclick="setLayer('off')">Off</button>
   <div class="sep"></div>
   <div style="display:flex;align-items:center;gap:6px">
     <label style="font-size:11px;color:var(--dim)">Opacity</label>
@@ -238,6 +238,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
     <div style="display:flex;justify-content:space-between;font-size:7px;color:var(--dim);margin-top:1px">
       <span>0</span><span>1</span><span>2</span><span>3</span><span>4+</span>
     </div>
+    <div style="font-size:7px;color:var(--dim);margin-top:3px;max-width:100px;line-height:1.3">Live only — no forecast data source exists for currents</div>
   </div>
 
   <!-- Mobile-only drawer toggle -->
@@ -501,8 +502,8 @@ const REGIONS = {
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let curLayer   = 'sst';
-let curBase    = 'osm';
+let curLayer   = 'off';
+let curBase    = 'sat';
 let curOpacity = 0.75;
 let curDate    = todayStr();
 let oceanOverlay = null;
@@ -1134,6 +1135,16 @@ const windGroup = L.layerGroup().addTo(map);
 const swellGroup = L.layerGroup().addTo(map);
 let windReqId = 0, swellReqId = 0;
 let showWind = false, showSwell = false;
+
+// Scrubbing the Forecast panel's timeline can drive Wind/Swell into showing
+// a future/past hour instead of live conditions — Open-Meteo has a real
+// 16-day hourly forecast, unlike the NOAA current-observation dataset, which
+// has no forecast product at all (see the currents legend note). null means
+// "live/now"; set while the Forecast panel is open and scrubbed.
+let forecastScrubTimeIso = null;
+let fcOverlayScrubTimer = null;
+const windForecastCache = new Map();  // timeIso -> parsed locs, so re-scrubbing to an already-visited hour is instant
+const swellForecastCache = new Map();
 const WIND_GRID = 8; // NxN sample points — coarser than currents, arrows need room
 
 function sampleGrid(bounds, n) {
@@ -1164,56 +1175,122 @@ function flowArrowIcon(magnitude, maxScale, bearingDeg, fill) {
   });
 }
 
-async function updateWind(bounds) {
+function drawWindMarkers(locs) {
+  windGroup.clearLayers();
+  locs.forEach(loc => {
+    if (loc.kt == null) return;
+    L.marker([loc.lat, loc.lon], {
+      icon: flowArrowIcon(loc.kt, 1.1, loc.bearing, loc.fill), interactive: false, keyboard: false,
+    }).addTo(windGroup);
+  });
+}
+
+async function updateWind(bounds, timeIso) {
   const myReqId = ++windReqId;
+
+  if (timeIso && windForecastCache.has(timeIso)) {
+    drawWindMarkers(windForecastCache.get(timeIso));
+    return;
+  }
+
   const {lats, lons} = sampleGrid(bounds, WIND_GRID);
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m`;
+  // Live "now" uses Open-Meteo's current= endpoint (unchanged). Scrubbing the
+  // Forecast timeline instead pulls the full 16-day hourly array per point
+  // and picks out the scrubbed hour — the same forecast horizon and source
+  // already powering the Forecast panel, so Wind can genuinely simulate a
+  // future hour instead of only ever showing right-now conditions.
+  const url = timeIso
+    ? `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}&hourly=wind_speed_10m,wind_direction_10m&forecast_days=16&wind_speed_unit=kn&timezone=UTC`
+    : `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m`;
   try {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error('wind fetch failed: ' + resp.status);
     const data = await resp.json();
     if (myReqId !== windReqId) return;
-    windGroup.clearLayers();
-    const locs = Array.isArray(data) ? data : [data];
-    locs.forEach(loc => {
-      if (!loc.current || loc.current.wind_speed_10m == null || loc.current.wind_direction_10m == null) return;
-      const kt = loc.current.wind_speed_10m / 1.852;
-      // wind_direction_10m is meteorological "from" bearing — +180 to point
-      // the arrow in the direction the wind is actually blowing toward,
-      // matching the current arrows' flow-direction convention.
-      const bearing = (loc.current.wind_direction_10m + 180) % 360;
+    const rawLocs = Array.isArray(data) ? data : [data];
+
+    const parsed = [];
+    rawLocs.forEach(loc => {
+      let kt, dirDeg;
+      if (timeIso) {
+        const hi = loc.hourly?.time?.indexOf(timeIso);
+        if (hi == null || hi < 0) return;
+        const kmh = loc.hourly.wind_speed_10m[hi];
+        dirDeg = loc.hourly.wind_direction_10m[hi];
+        if (kmh == null || dirDeg == null) return;
+        kt = kmh; // already knots (wind_speed_unit=kn)
+      } else {
+        if (!loc.current || loc.current.wind_speed_10m == null || loc.current.wind_direction_10m == null) return;
+        kt = loc.current.wind_speed_10m / 1.852;
+        dirDeg = loc.current.wind_direction_10m;
+      }
+      // wind_direction is meteorological "from" bearing — +180 to point the
+      // arrow in the direction the wind is actually blowing toward, matching
+      // the current arrows' flow-direction convention.
+      const bearing = (dirDeg + 180) % 360;
       const fill = kt < 10 ? '#8fe3b0' : kt < 20 ? '#3dc47e' : kt < 30 ? '#e0a83d' : '#e8573a';
-      L.marker([loc.latitude, loc.longitude], {
-        icon: flowArrowIcon(kt, 1.1, bearing, fill), interactive: false, keyboard: false,
-      }).addTo(windGroup);
+      parsed.push({lat: loc.latitude, lon: loc.longitude, kt, bearing, fill});
     });
+
+    if (timeIso) windForecastCache.set(timeIso, parsed);
+    drawWindMarkers(parsed);
   } catch (err) {
     if (myReqId !== windReqId) return;
     console.log('OceanFishy wind fetch failed:', err.message);
   }
 }
 
-async function updateSwell(bounds) {
+function drawSwellMarkers(locs) {
+  swellGroup.clearLayers();
+  locs.forEach(loc => {
+    if (loc.h == null) return;
+    L.marker([loc.lat, loc.lon], {
+      icon: flowArrowIcon(loc.h, 8, loc.bearing, loc.fill), interactive: false, keyboard: false,
+    }).addTo(swellGroup);
+  });
+}
+
+async function updateSwell(bounds, timeIso) {
   const myReqId = ++swellReqId;
+
+  if (timeIso && swellForecastCache.has(timeIso)) {
+    drawSwellMarkers(swellForecastCache.get(timeIso));
+    return;
+  }
+
   const {lats, lons} = sampleGrid(bounds, WIND_GRID);
-  const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${lats.join(',')}&longitude=${lons.join(',')}&current=swell_wave_height,swell_wave_direction,swell_wave_period`;
+  const url = timeIso
+    ? `https://marine-api.open-meteo.com/v1/marine?latitude=${lats.join(',')}&longitude=${lons.join(',')}&hourly=swell_wave_height,swell_wave_direction,swell_wave_period&forecast_days=16&timezone=UTC`
+    : `https://marine-api.open-meteo.com/v1/marine?latitude=${lats.join(',')}&longitude=${lons.join(',')}&current=swell_wave_height,swell_wave_direction,swell_wave_period`;
   try {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error('swell fetch failed: ' + resp.status);
     const data = await resp.json();
     if (myReqId !== swellReqId) return;
-    swellGroup.clearLayers();
-    const locs = Array.isArray(data) ? data : [data];
-    locs.forEach(loc => {
-      const c = loc.current;
-      if (!c || c.swell_wave_height == null || c.swell_wave_direction == null) return;
-      const bearing = (c.swell_wave_direction + 180) % 360;
-      const h = c.swell_wave_height;
+    const rawLocs = Array.isArray(data) ? data : [data];
+
+    const parsed = [];
+    rawLocs.forEach(loc => {
+      let h, dirDeg;
+      if (timeIso) {
+        const hi = loc.hourly?.time?.indexOf(timeIso);
+        if (hi == null || hi < 0) return;
+        h = loc.hourly.swell_wave_height[hi];
+        dirDeg = loc.hourly.swell_wave_direction[hi];
+        if (h == null || dirDeg == null) return;
+      } else {
+        const c = loc.current;
+        if (!c || c.swell_wave_height == null || c.swell_wave_direction == null) return;
+        h = c.swell_wave_height;
+        dirDeg = c.swell_wave_direction;
+      }
+      const bearing = (dirDeg + 180) % 360;
       const fill = h < 0.5 ? '#8fd6f2' : h < 1.5 ? '#3aa0d8' : h < 2.5 ? '#1f6fae' : '#0d3b6e';
-      L.marker([loc.latitude, loc.longitude], {
-        icon: flowArrowIcon(h, 8, bearing, fill), interactive: false, keyboard: false,
-      }).addTo(swellGroup);
+      parsed.push({lat: loc.latitude, lon: loc.longitude, h, bearing, fill});
     });
+
+    if (timeIso) swellForecastCache.set(timeIso, parsed);
+    drawSwellMarkers(parsed);
   } catch (err) {
     if (myReqId !== swellReqId) return;
     console.log('OceanFishy swell fetch failed:', err.message);
@@ -1223,12 +1300,12 @@ async function updateSwell(bounds) {
 function toggleWind() {
   showWind = !showWind;
   document.getElementById('b-wind').classList.toggle('on', showWind);
-  if (showWind) updateWind(map.getBounds()); else windGroup.clearLayers();
+  if (showWind) updateWind(map.getBounds(), forecastScrubTimeIso); else windGroup.clearLayers();
 }
 function toggleSwell() {
   showSwell = !showSwell;
   document.getElementById('b-swell').classList.toggle('on', showSwell);
-  if (showSwell) updateSwell(map.getBounds()); else swellGroup.clearLayers();
+  if (showSwell) updateSwell(map.getBounds(), forecastScrubTimeIso); else swellGroup.clearLayers();
 }
 
 // ── Point forecast panel (Wind/Gust, Temp, Pressure, Waves, Swell, Swell
@@ -1237,12 +1314,26 @@ function toggleSwell() {
 let forecastModeActive = false;
 let forecastReqId = 0;
 
+// Returns Wind/Swell to live "now" conditions once the Forecast panel is no
+// longer scrubbable — otherwise they'd stay silently stuck showing whatever
+// hour was last scrubbed to, with no panel open to explain why.
+function resetForecastScrubToLive() {
+  if (forecastScrubTimeIso == null) return;
+  forecastScrubTimeIso = null;
+  clearTimeout(fcOverlayScrubTimer);
+  if (showWind) updateWind(map.getBounds());
+  if (showSwell) updateSwell(map.getBounds());
+}
+
 function toggleForecastMode() {
   forecastModeActive = !forecastModeActive;
   document.getElementById('b-forecast').classList.toggle('on', forecastModeActive);
   map.getContainer().style.cursor = forecastModeActive ? 'crosshair' : '';
   setStatus(forecastModeActive ? 'Forecast: click a point on the map (click again anywhere to update)' : '');
-  if (!forecastModeActive) document.getElementById('forecast-panel').style.display = 'none';
+  if (!forecastModeActive) {
+    document.getElementById('forecast-panel').style.display = 'none';
+    resetForecastScrubToLive();
+  }
 }
 
 // Closing the panel (✕) also exits forecast-click mode — otherwise the mode
@@ -1254,6 +1345,7 @@ function closeForecastPanel() {
   document.getElementById('b-forecast').classList.remove('on');
   map.getContainer().style.cursor = '';
   setStatus('');
+  resetForecastScrubToLive();
 }
 
 // Simple synodic-month approximation, accurate to within ~a day — plenty for
@@ -1519,6 +1611,18 @@ function fcScrubTo(ci) {
     `<span>${weatherIcon(code, isDay)}</span><span style="font-weight:600">${t!=null?Math.round(t)+'°C':'–'}</span>` +
     `<span style="color:var(--dim)">Wind ${wkt!=null?Math.round(wkt):'–'}/${gkt!=null?Math.round(gkt):'–'}kt</span>` +
     `<span style="color:var(--dim)">Wave ${wh!=null?wh.toFixed(1)+'m':'–'}</span>`;
+
+  // Drive the Wind/Swell map overlays to this same scrubbed hour, so they
+  // visually "simulate" forward/back through the forecast alongside the
+  // panel — debounced so dragging the cursor across many hours doesn't fire
+  // a fetch per pixel of movement. Currents deliberately never receives this
+  // (no forecast data source for it — see the currents legend).
+  forecastScrubTimeIso = wx.hourly.time[hi];
+  clearTimeout(fcOverlayScrubTimer);
+  fcOverlayScrubTimer = setTimeout(() => {
+    if (showWind) updateWind(map.getBounds(), forecastScrubTimeIso);
+    if (showSwell) updateSwell(map.getBounds(), forecastScrubTimeIso);
+  }, 350);
 }
 
 function setupFcDrag() {
@@ -2242,8 +2346,10 @@ function scheduleOverlayRefresh() {
   overlayRefreshTimer = setTimeout(() => {
     if (showContours) updateContours(curDate, map.getBounds());
     if (showCurrents) updateCurrents(curDate, map.getBounds());
-    if (showWind) updateWind(map.getBounds());
-    if (showSwell) updateSwell(map.getBounds());
+    // Currents intentionally never receives forecastScrubTimeIso — always
+    // live conditions, panning included (see the legend note on why).
+    if (showWind) updateWind(map.getBounds(), forecastScrubTimeIso);
+    if (showSwell) updateSwell(map.getBounds(), forecastScrubTimeIso);
   }, 600);
 }
 map.on('moveend', function() {
@@ -2349,11 +2455,11 @@ function clearRuler() {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-buildBase('osm');
+buildBase('sat');
 buildDateChips(todayStr(), 1); // placeholder until useLatestAvailableDate() confirms the real dates
 updateLegend();
 jumpTo('shellcove');
-updateAvailNote(LAYERS['sst']);
+updateAvailNote(null); // curLayer defaults to 'off' — no data-availability note to show
 useLatestAvailableDate();
 renderMarkers();
 renderGroupFilter();
