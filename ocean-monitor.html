@@ -938,14 +938,12 @@ function initCurrentParticles() {
   });
 }
 
-// Tuned so a slow real current (~1.2kt visual floor) still moves visibly
-// without turning into a chaotic blur — the earlier 90px/knot/sec + 2kt
-// floor (~3px/frame) looked like everything was spinning far faster than
-// any real current, since dozens of particles were all visibly zipping
-// around at once. Roughly half the speed reads as actual drifting current
-// rather than a fast spin.
-const CURRENT_VISUAL_PX_PER_KNOT_PER_SEC = 40;
-const CURRENT_MIN_VISUAL_KNOTS = 1.2; // floor so slow real currents (~0.1-0.3 m/s here) still visibly move
+// Tuned so a slow real current (~0.8kt visual floor) still moves visibly
+// without turning into a chaotic blur. Went through 90px/knot/sec+2kt,
+// then 40px/knot/sec+1.2kt, and both still read as too fast — cut roughly
+// in half again.
+const CURRENT_VISUAL_PX_PER_KNOT_PER_SEC = 18;
+const CURRENT_MIN_VISUAL_KNOTS = 0.8; // floor so slow real currents (~0.1-0.3 m/s here) still visibly move
 
 // Windy-style continuous speed→color ramp (deep blue = slow, through
 // teal/green/yellow to red = fast) instead of 3 flat bands — a smooth
