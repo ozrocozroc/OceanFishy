@@ -1,0 +1,2286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OceanFishy — SST · Chlorophyll · Altimetry</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0b1320;--surf:#121c2e;--surf2:#1a2640;
+  --bdr:rgba(255,255,255,0.09);--bdrs:rgba(255,255,255,0.18);
+  --txt:#e8edf5;--mut:rgba(232,237,245,0.5);--dim:rgba(232,237,245,0.3);
+  --acc:#2a9fd6;--sst:#e8573a;--chl:#3dc47e;--alt:#6b8eff;--r:6px;
+}
+html,body{height:100%;font-family:-apple-system,'Segoe UI',sans-serif;background:var(--bg);color:var(--txt);overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh}
+
+/* Header */
+#hdr{display:flex;align-items:center;justify-content:space-between;padding:0 14px;height:46px;flex-shrink:0;background:var(--surf);border-bottom:1px solid var(--bdr);z-index:1000}
+.logo{font-size:15px;font-weight:700;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+.logo span{color:var(--acc)}
+.tag{font-size:11px;color:var(--dim);border-left:1px solid var(--bdrs);padding-left:10px;margin-left:10px}
+.live{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:5px}
+.dot{width:6px;height:6px;border-radius:50%;background:#3dc47e;animation:blink 2.5s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt);border-radius:var(--r);padding:4px 8px;font-size:12px;font-family:inherit;cursor:pointer;outline:none}
+
+/* Layer bar */
+#lbar{display:flex;align-items:center;gap:5px;padding:7px 12px;background:var(--surf);border-bottom:1px solid var(--bdr);flex-shrink:0;overflow-x:auto;z-index:999;flex-wrap:wrap;row-gap:5px}
+#lbar::-webkit-scrollbar{display:none}
+.lbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;padding-right:2px}
+.sep{width:1px;height:18px;background:var(--bdr);margin:0 4px;flex-shrink:0}
+.lb{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:var(--r);border:1px solid var(--bdrs);background:transparent;font-size:12px;color:var(--mut);cursor:pointer;transition:all .12s;white-space:nowrap;font-family:inherit}
+.lb:hover{background:var(--surf2);color:var(--txt)}
+.lb.on.sst{background:rgba(232,87,58,.2);border-color:rgba(232,87,58,.5);color:#ff8c6e}
+.lb.on.chl{background:rgba(61,196,126,.16);border-color:rgba(61,196,126,.45);color:#5de09a}
+.lb.on.alt{background:rgba(107,142,255,.16);border-color:rgba(107,142,255,.45);color:#9bb0ff}
+.lb.on.base{background:rgba(42,159,214,.14);border-color:rgba(42,159,214,.4);color:var(--acc)}
+.lb.on.depth{background:rgba(58,124,165,.18);border-color:rgba(58,124,165,.5);color:#85c4e8}
+.lb.on.ruler{background:rgba(255,210,63,.16);border-color:rgba(255,210,63,.5);color:#ffd23f}
+.lb.on.contours{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.4);color:#fff}
+.ruler-label{font-weight:700!important;font-size:12px!important}
+.mf-input{width:100%;background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt);border-radius:var(--r);padding:6px 8px;font-size:12px;font-family:inherit;outline:none;margin-bottom:6px}
+.mf-btn{padding:6px 10px;border-radius:var(--r);border:none;font-size:12px;cursor:pointer;font-family:inherit;flex:1}
+.mf-btn.primary{background:var(--acc);color:#fff}
+.mf-btn.danger{background:#c0392b;color:#fff}
+.mf-btn.ghost{background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs)}
+.mark-edit{font-size:13px;color:var(--mut);cursor:pointer;padding:0 6px;border-radius:4px;flex-shrink:0;line-height:18px}
+.mark-edit:hover{color:#fff;background:var(--surf2)}
+#b-marks-edit.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.bdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.bdot.sst{background:var(--sst)}.bdot.chl{background:var(--chl)}.bdot.alt{background:var(--alt)}.bdot.depth{background:#3a7ca5}
+
+/* Date bar */
+#datebar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surf);border-bottom:1px solid var(--bdr);flex-shrink:0;overflow-x:auto;z-index:998}
+#datebar::-webkit-scrollbar{display:none}
+.dbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+#date-input{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt);border-radius:var(--r);padding:4px 8px;font-size:12px;font-family:inherit;cursor:pointer;outline:none;color-scheme:dark}
+.date-chip{padding:4px 9px;border-radius:var(--r);border:1px solid var(--bdrs);background:transparent;font-size:11px;color:var(--mut);cursor:pointer;transition:all .12s;white-space:nowrap;font-family:inherit;text-align:center}
+.date-chip:hover{background:var(--surf2);color:var(--txt)}
+.date-chip.on{background:rgba(42,159,214,.14);border-color:rgba(42,159,214,.4);color:var(--acc)}
+#data-avail{font-size:11px;color:var(--dim);margin-left:6px;white-space:nowrap}
+
+/* Opacity */
+#oslider{-webkit-appearance:none;appearance:none;width:80px;height:3px;border-radius:2px;background:var(--bdrs);outline:none;cursor:pointer}
+#oslider::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--acc);cursor:pointer}
+
+/* Map */
+#map{flex:1;position:relative}
+.leaflet-container{background:#0d1825!important}
+
+/* Sidebar */
+#sb{position:absolute;top:10px;right:10px;bottom:10px;z-index:900;width:234px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+#sb::-webkit-scrollbar{width:6px}
+#sb::-webkit-scrollbar-thumb{background:var(--bdrs);border-radius:3px}
+#sb .panel{flex-shrink:0}
+.panel{background:rgba(18,28,46,.94);border:1px solid var(--bdrs);border-radius:8px;padding:11px 13px;backdrop-filter:blur(8px)}
+.pt{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:9px}
+#rv{font-size:28px;font-weight:700;line-height:1}
+#ru{font-size:12px;color:var(--mut);margin-left:2px}
+#rc{font-size:11px;color:var(--dim);margin-top:5px;font-variant-numeric:tabular-nums}
+#rsub{font-size:11px;color:var(--dim);line-height:1.45;border-top:1px solid var(--bdr);padding-top:7px;margin-top:8px}
+#rph{font-size:12px;color:var(--dim);line-height:1.5}
+.sr{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--bdr)}
+.sr:last-child{border-bottom:none}
+.sn{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:5px}
+.sv{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.sd{font-size:10px;margin-top:1px}
+.up{color:#ff8c6e}.dn{color:#5de09a}
+#lgrd{height:10px;border-radius:3px;margin-bottom:5px}
+#llabs{display:flex;justify-content:space-between;font-size:10px;color:var(--dim)}
+.mr{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bdr);cursor:pointer}
+.mr:last-child{border-bottom:none}
+.mr:hover .mn{color:var(--acc)}
+.mi{width:7px;height:7px;border-radius:50%;background:#ff8c6e;margin-right:6px;flex-shrink:0}
+.mn{font-size:12px;color:var(--mut);transition:color .1s}
+.md{font-size:11px;color:var(--dim)}
+
+/* Spinner overlay on map */
+#spinner{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:910;background:rgba(18,28,46,.92);border:1px solid var(--bdrs);border-radius:20px;padding:6px 14px;font-size:11px;color:var(--mut);display:none;align-items:center;gap:8px;pointer-events:none}
+#spinner.show{display:flex}
+.spin{width:14px;height:14px;border:2px solid var(--bdrs);border-top-color:var(--acc);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Status */
+#status{position:absolute;bottom:26px;left:10px;z-index:900;background:rgba(18,28,46,.92);border:1px solid var(--bdrs);border-radius:var(--r);padding:5px 10px;font-size:11px;color:var(--mut);display:none;max-width:320px;line-height:1.4}
+#status.show{display:block}
+
+/* Source bar */
+#src{position:absolute;bottom:0;left:0;right:0;z-index:900;background:rgba(11,19,32,.88);border-top:1px solid var(--bdr);padding:3px 14px;font-size:10px;color:var(--dim);backdrop-filter:blur(4px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#src a{color:var(--acc);text-decoration:none}
+
+.leaflet-tooltip{background:rgba(18,28,46,.95)!important;border:1px solid var(--bdrs)!important;color:var(--txt)!important;font-size:12px!important;border-radius:var(--r)!important;box-shadow:none!important}
+.leaflet-tooltip::before{display:none!important}
+.leaflet-control-zoom{border:1px solid var(--bdrs)!important;border-radius:var(--r)!important;overflow:hidden}
+.leaflet-control-zoom a{background:var(--surf)!important;color:var(--mut)!important;border-bottom:1px solid var(--bdr)!important;width:28px!important;height:28px!important;line-height:28px!important}
+.leaflet-control-zoom a:hover{background:var(--surf2)!important;color:var(--txt)!important}
+
+/* Mobile sidebar drawer toggle (hidden on desktop) */
+#sb-toggle{display:none}
+
+@media(max-width:640px){
+  .tag{display:none}
+
+  #sb-toggle{
+    display:flex;align-items:center;justify-content:center;gap:5px;
+    position:absolute;bottom:14px;right:12px;z-index:950;
+    height:36px;padding:0 14px;border-radius:18px;
+    background:rgba(18,28,46,.92);color:var(--txt);border:1px solid var(--bdrs);
+    box-shadow:0 2px 10px rgba(0,0,0,.4);font-size:13px;cursor:pointer;
+  }
+
+  #sb{
+    position:absolute;left:0;right:0;bottom:0;top:auto;
+    width:auto;max-height:52vh;overflow-y:auto;
+    border-radius:14px 14px 0 0;
+    background:rgba(11,19,32,.97);
+    padding:14px 10px calc(env(safe-area-inset-bottom,0px) + 10px);
+    transform:translateY(100%);transition:transform .25s ease;
+    z-index:940;
+  }
+  #sb::before{
+    content:'';position:sticky;top:-4px;display:block;
+    width:36px;height:4px;border-radius:2px;background:var(--bdrs);
+    margin:0 auto 8px;
+  }
+  #sb.open{transform:translateY(0)}
+  #sb .panel{backdrop-filter:none}
+
+  /* Prevent the always-on-top Leaflet zoom control from sitting over the
+     bottom-sheet sidebar when it's open — pinch/scroll zoom still works. */
+  #map.sb-open .leaflet-control-zoom{display:none}
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- Header -->
+<header id="hdr">
+  <div style="display:flex;align-items:center">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2a9fd6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-2.5 3-2.5 6 0 9s2.5 6 0 9M12 3c2.5 3 2.5 6 0 9s-2.5 6 0 9"/>
+    </svg>
+    <div class="logo" style="margin-left:8px">Ocean<span>Fishy</span></div>
+    <span class="tag">SST · Chlorophyll · Altimetry — Australian Waters</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <select id="reg" class="hsel" onchange="jumpTo(this.value)">
+      <option value="shellcove">Shell Cove / Illawarra</option>
+      <option value="sydney">Sydney Offshore</option>
+      <option value="brisbane">Brisbane / Moreton</option>
+      <option value="cairns">Cairns / Coral Sea</option>
+      <option value="geraldton">Geraldton / WA</option>
+      <option value="portlincoln">Port Lincoln / SA</option>
+      <option value="tasmania">Tasmania</option>
+      <option value="australia">All Australia</option>
+    </select>
+    <div class="live"><span class="dot"></span>NOAA · NASA</div>
+  </div>
+</header>
+
+<!-- Layer bar -->
+<div id="lbar">
+  <span class="lbl">Base</span>
+  <button class="lb base on" id="b-osm"  onclick="setBase('osm')">🗺 Street</button>
+  <button class="lb base"    id="b-ocean" onclick="setBase('ocean')">🌊 Ocean</button>
+  <button class="lb base"    id="b-sat"  onclick="setBase('sat')">🛰 Satellite</button>
+  <button class="lb base"    id="b-dark" onclick="setBase('dark')">🌑 Dark</button>
+  <div class="sep"></div>
+  <span class="lbl">Ocean layer</span>
+  <button class="lb sst on" id="b-sst" onclick="setLayer('sst')"><span class="bdot sst"></span>SST</button>
+  <button class="lb chl"    id="b-chl" onclick="setLayer('chl')" title="NOAA VIIRS weekly composite — ~2-3 week lag"><span class="bdot chl"></span>Chl (VIIRS)</button>
+  <button class="lb chl"    id="b-chlOlci" onclick="setLayer('chlOlci')" title="Copernicus Sentinel-3 OLCI daily — ~2-3 day lag"><span class="bdot chl"></span>Chl (OLCI)</button>
+  <button class="lb alt"    id="b-alt" onclick="setLayer('alt')"><span class="bdot alt"></span>Altimetry</button>
+  <button class="lb depth"  id="b-depth" onclick="setLayer('depth')"><span class="bdot depth"></span>Depth</button>
+  <button class="lb"        id="b-off" onclick="setLayer('off')">Off</button>
+  <div class="sep"></div>
+  <div style="display:flex;align-items:center;gap:6px">
+    <label style="font-size:11px;color:var(--dim)">Opacity</label>
+    <input type="range" id="oslider" min="10" max="100" value="75" step="5" oninput="setOpacity(this.value)">
+    <span id="oval" style="font-size:11px;color:var(--dim);min-width:28px">75%</span>
+  </div>
+  <div class="sep"></div>
+  <span class="lbl">Overlays</span>
+  <button class="lb contours" id="b-currents" onclick="toggleCurrents()" title="Overlay real geostrophic surface current arrows on any layer">➜ Currents</button>
+  <button class="lb contours" id="b-wind" onclick="toggleWind()" title="Overlay real wind speed/direction arrows (Open-Meteo)">💨 Wind</button>
+  <button class="lb contours" id="b-swell" onclick="toggleSwell()" title="Overlay real swell height/direction arrows (Open-Meteo Marine)">🌊 Swell</button>
+  <button class="lb ruler" id="b-forecast" onclick="toggleForecastMode()" title="Click a point on the map for a 16-day forecast: wind, waves, swell, tide, pressure, moon phase">📈 Forecast</button>
+  <div class="sep"></div>
+  <span class="lbl">Tools</span>
+  <button class="lb contours" id="b-contours" onclick="toggleContours()" title="Overlay real SLA contour lines on any layer, for comparison">〰 SLA contours</button>
+  <button class="lb ruler" id="b-ruler" onclick="toggleRuler()">📏 Ruler</button>
+  <button class="lb" id="b-ruler-clear" onclick="clearRuler()" style="display:none">✕ Clear</button>
+</div>
+
+<!-- Date bar -->
+<div id="datebar">
+  <span class="dbl">Data date</span>
+  <div id="date-chips" style="display:flex;gap:4px;flex-shrink:0"></div>
+  <span id="data-avail"></span>
+</div>
+
+<!-- Map -->
+<div id="map">
+  <div id="spinner"><div class="spin"></div><span id="spin-txt">Loading…</span></div>
+  <div id="status"></div>
+
+  <!-- Mobile-only drawer toggle -->
+  <button id="sb-toggle" onclick="toggleSidebar()" aria-label="Toggle info panel">ℹ Info</button>
+
+  <!-- Sidebar -->
+  <div id="sb">
+    <div class="panel">
+      <div class="pt" id="rpt">Click ocean to read value</div>
+      <div id="rpc"><div id="rph">Click anywhere on the water to read SST, Chlorophyll‑a or Sea Level Anomaly at that point.</div></div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span class="pt" style="margin:0">Legend</span>
+        <span id="lname" style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--mut)">SST</span>
+      </div>
+      <div id="lgrd"></div>
+      <div id="llabs"><span id="lmin"></span><span id="lmid"></span><span id="lmax"></span></div>
+    </div>
+
+    <!-- Live values panel — shows last clicked value for all layers -->
+    <div class="panel" id="live-panel">
+      <div class="pt">Live readings <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">(click map)</span></div>
+      <div class="sr">
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--sst);display:inline-block;margin-right:5px"></span>SST <span style="font-size:9px;color:var(--dim)">(est.)</span></span>
+        <div style="text-align:right"><div class="sv" id="live-sst" style="color:var(--dim)">—</div></div>
+      </div>
+      <div class="sr">
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--chl);display:inline-block;margin-right:5px"></span>Chl-a <span style="font-size:9px;color:var(--dim)">(est.)</span></span>
+        <div style="text-align:right"><div class="sv" id="live-chl" style="color:var(--dim)">—</div></div>
+      </div>
+      <div class="sr">
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--alt);display:inline-block;margin-right:5px"></span>SLA <span style="font-size:9px;color:var(--dim)">(live)</span></span>
+        <div style="text-align:right"><div class="sv" id="live-alt" style="color:var(--dim)">—</div></div>
+      </div>
+      <div class="sr">
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#3a7ca5;display:inline-block;margin-right:5px"></span>Depth <span style="font-size:9px;color:var(--dim)">(live)</span></span>
+        <div style="text-align:right"><div class="sv" id="live-depth" style="color:var(--dim)">—</div></div>
+      </div>
+      <div id="live-coord" style="font-size:10px;color:var(--dim);margin-top:7px;border-top:1px solid var(--bdr);padding-top:6px">No point selected</div>
+      <div id="live-note" style="font-size:11px;color:var(--dim);margin-top:5px;line-height:1.4"></div>
+    </div>
+
+    <div class="panel">
+      <div class="pt">Conditions — <span id="rname">Shell Cove</span> <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">(regional estimates)</span></div>
+      <div class="sr">
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--sst);display:inline-block;margin-right:5px"></span>SST</span>
+        <div style="text-align:right"><div class="sv" id="s-sst">—</div><div class="sd up" id="s-sstd"></div></div>
+      </div>
+      <div class="sr">
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--chl);display:inline-block;margin-right:5px"></span>Chlorophyll</span>
+        <div style="text-align:right"><div class="sv" id="s-chl">—</div><div class="sd dn" id="s-chld"></div></div>
+      </div>
+      <div class="sr">
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--alt);display:inline-block;margin-right:5px"></span>Sea level anom.</span>
+        <div style="text-align:right"><div class="sv" id="s-alt">—</div><div class="sd up" id="s-altd"></div></div>
+      </div>
+      <div class="sr">
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#3a7ca5;display:inline-block;margin-right:5px"></span>Depth</span>
+        <div style="text-align:right"><div class="sv" id="s-depth">~380m</div><div class="sd" style="color:var(--dim)" id="s-depthd">Kiama Canyon</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:6px">
+        <span class="pt" style="margin:0">Known marks</span>
+        <div style="display:flex;gap:5px;flex-shrink:0">
+          <button id="b-marks-edit" onclick="toggleMarksEditMode()" title="Toggle edit mode — click a mark in the list to edit it" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;white-space:nowrap">✎ Edit</button>
+          <button onclick="startAddMark()" style="background:var(--acc);color:#fff;border:none;border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;white-space:nowrap">＋ Add</button>
+        </div>
+      </div>
+      <select id="mark-group-filter" onchange="renderMarksList()" style="width:100%;background:var(--surf2);border:1px solid var(--bdrs);color:var(--mut);border-radius:4px;font-size:11px;padding:5px 6px;font-family:inherit;outline:none;margin-bottom:6px"></select>
+      <div style="display:flex;justify-content:flex-end;gap:5px;margin-bottom:8px">
+        <button onclick="exportMarks()" title="Download all marks as a JSON file" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬇ Export</button>
+        <button onclick="document.getElementById('mark-import-input').click()" title="Import marks from a JSON file" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬆ Import</button>
+        <input type="file" id="mark-import-input" accept="application/json,.json" style="display:none" onchange="importMarks(this.files[0]); this.value=''">
+      </div>
+      <div id="marks-list"></div>
+    </div>
+  </div>
+
+  <!-- Add/Edit mark form -->
+  <div id="mark-form" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:rgba(18,28,46,.97);border:1px solid var(--bdrs);border-radius:10px;padding:16px;width:260px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.5)">
+    <div style="font-size:12px;font-weight:600;margin-bottom:10px" id="mark-form-title">Add mark</div>
+    <input class="mf-input" id="mf-name" placeholder="Name" maxlength="60">
+    <input class="mf-input" id="mf-depth" placeholder="Depth (e.g. 260-380m)" maxlength="30">
+    <input class="mf-input" id="mf-species" placeholder="Species / notes" maxlength="80">
+    <input class="mf-input" id="mf-group" placeholder="Group (e.g. Canyons)" list="mark-groups-list" maxlength="30">
+    <datalist id="mark-groups-list"></datalist>
+    <div style="display:flex;gap:6px;margin-bottom:4px">
+      <input class="mf-input" id="mf-lat" type="text" placeholder="Latitude" style="margin-bottom:0">
+      <input class="mf-input" id="mf-lng" type="text" placeholder="Longitude" style="margin-bottom:0">
+    </div>
+    <div style="font-size:9px;color:var(--dim);margin-bottom:10px">Decimal (-34.556), DMS (34°33'21"S) or D M (34 33.35 S) all accepted</div>
+    <div style="display:flex;gap:6px">
+      <button class="mf-btn primary" onclick="saveMarkForm()">Save</button>
+      <button class="mf-btn danger" id="mf-delete" onclick="deleteMarkForm()" style="display:none">Delete</button>
+      <button class="mf-btn ghost" onclick="closeMarkForm()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Point forecast panel — Windy-style bottom-docked hourly timeline -->
+  <div id="forecast-panel" style="display:none;position:absolute;left:8px;right:8px;bottom:8px;z-index:1100;background:rgba(11,19,32,.97);border:1px solid var(--bdrs);border-radius:10px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.5);max-height:64vh;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--bdr);flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:13px;font-weight:700">Forecast</span>
+        <span style="font-size:10px;color:var(--dim)" id="fc-coords"></span>
+        <span id="fc-summary" style="font-size:11px;display:flex;align-items:center;gap:8px"></span>
+      </div>
+      <span style="cursor:pointer;color:var(--dim);font-size:16px;line-height:1;padding:2px 6px" onclick="closeForecastPanel()">✕</span>
+    </div>
+    <div id="fc-body" style="overflow:auto;flex:1">
+      <div style="font-size:12px;color:var(--dim);padding:20px 0;text-align:center" id="fc-loading">Loading forecast…</div>
+    </div>
+  </div>
+
+  <div id="src">
+    SST: <a href="https://coastwatch.pfeg.noaa.gov/erddap/wms/jplMURSST41/index.html" target="_blank">NASA MUR SST (NOAA ERDDAP)</a> ·
+    Chl: <a href="https://coastwatch.noaa.gov/erddap/info/noaacwNPPVIIRSchlaDaily/index.html" target="_blank">NOAA VIIRS Chl-a</a> ·
+    Alt: <a href="https://coastwatch.noaa.gov/erddap/info/noaacwBLENDEDsshDaily/index.html" target="_blank">NOAA/RADS Altimetry</a> ·
+    Base: OSM / Esri / CARTO
+  </div>
+</div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// ARCHITECTURE
+//
+// Base map: standard Leaflet with EPSG:3857 (Web Mercator) — OSM/Esri/Carto
+// all work natively.
+//
+// Ocean layer: ERDDAP GetMap returns a geo-referenced PNG in EPSG:4326.
+// We use L.imageOverlay() pinned to the current lat/lng bounding box.
+// On every pan/zoom we request a new image matching the new bounds.
+//
+// Date: injected as a WMS TIME parameter so you get historical satellite data.
+//
+// The image is set directly as img src (no crossOrigin attribute) so the
+// browser's <img> tag loads it without a CORS preflight — same technique
+// that lets you embed any external image in a webpage.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Layer config ─────────────────────────────────────────────────────────────
+const LAYERS = {
+  sst: {
+    label:'Sea surface temperature', unit:'°C', name:'SST',
+    // Colors verified against the real WMS output (sampled via a CORS-friendly
+    // image proxy + canvas, paired with real griddap values at each point) —
+    // see the crange comment below for why this had to be reverse-engineered.
+    grad:'linear-gradient(to right,#4b0082,#0051ff 29%,#00ff94 43%,#30ff00 52%,#ffeb00 64%,#ffaf00 72%,#ff5200 81%,#ff2200)',
+    min:'0°C', mid:'16°C', max:'32°C',
+    // NASA MUR SST — 1km daily global, free, no auth
+    url:'https://coastwatch.pfeg.noaa.gov/erddap/wms/jplMURSST41/request',
+    layer:'jplMURSST41:analysed_sst',
+    // IMPORTANT: this ERDDAP WMS endpoint completely ignores colorscalerange
+    // (confirmed empirically — absurd/tight/normal ranges all render identical
+    // colors). It always uses the dataset's own fixed colorBarMinimum/Maximum
+    // (0-32°C here, confirmed via /erddap/info metadata), regardless of what's
+    // passed here. Kept in real units (°C, matching the dataset — not the
+    // previous Kelvin-style numbers, which were also wrong) for correctness/
+    // documentation, and in case a future ERDDAP version starts respecting it,
+    // but the legend above reflects the TRUE fixed 0-32°C range, not this.
+    crange:'0,32', palette:'Rainbow',
+    // Data availability: 2002-06-01 to ~yesterday
+    startDate:'2002-06-01',
+    note:'NASA MUR SST · 1km · Daily · 2002–present',
+  },
+  chl: {
+    label:'Chlorophyll-a concentration', unit:'mg/m³', name:'Chl-a',
+    // Real sampled colors (see sst.grad comment for method), positioned by
+    // log-normalized fraction — this dataset's fixed scale is genuinely Log
+    // (colorBarScale=Log in its metadata), confirmed by how tightly real
+    // 0.3-5 mg/m³ values already span from blue to orange below.
+    grad:'linear-gradient(to right,#3d0066,#009aed 32%,#00ead1 39%,#00ff64 46%,#12ff00 52%,#cbfe00 61%,#fec100 71%,#ffa800 75%,#ff2200)',
+    min:'0.03', mid:'~1', max:'30',
+    // NOAA VIIRS S-NPP weekly global Chl-a, 4km, 2017-present
+    // Layer name: datasetID:variableName — VIIRS datasets use "chlor_a"
+    url:'https://coastwatch.noaa.gov/erddap/wms/noaacwNPPVIIRSchlaWeekly/request',
+    layer:'noaacwNPPVIIRSchlaWeekly:chlor_a',
+    // IMPORTANT: same as SST — colorscalerange is silently ignored by this
+    // ERDDAP WMS endpoint (confirmed empirically). It always renders using
+    // the dataset's own fixed colorBarMinimum=0.03/colorBarMaximum=30 on a
+    // Log scale (from /erddap/info metadata), not whatever is passed here.
+    // Kept for documentation/future-proofing only.
+    crange:'0.03,30', palette:'Rainbow',
+    startDate:'2017-01-01',
+    note:'NOAA VIIRS Chl-a · 4km · Weekly · 2017–present',
+    isStatic: false,
+    // Weekly composite: snap date to nearest Monday (VIIRS weekly runs Mon–Sun)
+    snapToWeekly: true,
+  },
+  chlOlci: {
+    label:'Chlorophyll-a concentration (Sentinel-3 OLCI)', unit:'mg/m³', name:'Chl-a (OLCI)',
+    // Same underlying "Rainbow" ERDDAP palette as VIIRS chl, reused as-is —
+    // both are log-scaled chlorophyll products so the color-to-fraction
+    // mapping is consistent between them.
+    grad:'linear-gradient(to right,#3d0066,#009aed 32%,#00ead1 39%,#00ff64 46%,#12ff00 52%,#cbfe00 61%,#fec100 71%,#ffa800 75%,#ff2200)',
+    min:'0.001', mid:'~0.25', max:'65',
+    // Copernicus Sentinel-3A OLCI daily chlorophyll — a genuinely independent
+    // satellite/instrument from the VIIRS-based layer above (different
+    // mission entirely, not just a different processing of the same sensor),
+    // and real-world testing shows it lags only ~2-3 days vs VIIRS weekly's
+    // ~3 weeks — added specifically so the two can be cross-compared.
+    url:'https://coastwatch.noaa.gov/erddap/wms/noaacwS3AOLCIchlaDaily/request',
+    layer:'noaacwS3AOLCIchlaDaily:chlor_a',
+    // Same colorscalerange caveat as the other layers — server ignores it,
+    // always uses its own fixed colorBarMinimum=0.001/Maximum=64.7 (Log).
+    crange:'0.001,64.7', palette:'Rainbow',
+    startDate:'2019-01-01',
+    note:'Copernicus S-3A OLCI Chl-a · 4km · Daily · 2019–present',
+    isStatic: false,
+  },
+  alt: {
+    label:'Sea level anomaly (altimetry)', unit:'cm', name:'SLA',
+    // Real sampled colors, positioned by true fraction of the fixed ±2m range.
+    // Real anomalies here only ever reach roughly the 35-70% band (±0.5-0.7m
+    // at most) — the color fill is inherently washed-out/pale for realistic
+    // values on this server; the bold contour lines (drawn from raw data, not
+    // this WMS image) are the more informative signal for this layer.
+    grad:'linear-gradient(to right,#0000ff,#3efeff 37.5%,#fffff2 50.8%,#ffffc0 54.1%,#ffff96 56.8%,#ffcb25 67.6%,#ff0000)',
+    min:'-200cm', mid:'0', max:'+200cm',
+    // NOAA CoastWatch's own altimetry mirror (RADS-derived), free/no-auth —
+    // the old nrt.cmems-du.eu CMEMS host is a dead/expired domain (parked by
+    // a domain reseller), so it never actually served real data.
+    url:'https://coastwatch.noaa.gov/erddap/wms/noaacwBLENDEDsshDaily/request',
+    layer:'noaacwBLENDEDsshDaily:sla',
+    // IMPORTANT: same as SST/chl — colorscalerange is silently ignored by this
+    // ERDDAP WMS endpoint (confirmed empirically). It always renders using the
+    // dataset's own fixed colorBarMinimum=-2.0/colorBarMaximum=2.0 (meters!,
+    // from /erddap/info metadata), not whatever is passed here. Kept in real
+    // units for documentation/future-proofing only.
+    crange:'-2,2', palette:'red_blue',
+    startDate:'2015-01-15',
+    note:'NOAA/RADS altimetry (S-3A/B, CryoSat2, Jason-2/3, SARAL) · 0.25° · Daily · 2015–present',
+    isStatic: false,
+  },
+  depth: {
+    label:'Water depth (bathymetry)', unit:'m', name:'Depth',
+    grad:'linear-gradient(to right,#e8f8ff,#a8dff0,#4fb3d9,#1a6fa8,#0d3b6e,#060f1e)',
+    min:'0m', mid:'1000m', max:'6000m+',
+    url:'https://coastwatch.pfeg.noaa.gov/erddap/wms/etopo360/request',
+    layer:'etopo360:altitude',
+    crange:'-6000,0', palette:'Ocean',
+    startDate:null,
+    note:'ETOPO1 · 1 arc-min · Static bathymetry · land masked',
+    isStatic: true,
+  },
+};
+
+const REGIONS = {
+  shellcove:   {lat:-34.58,lng:150.87,zoom:9, name:'Shell Cove',        sst:'19.2°C',sstd:'↑1.1° vs avg',chl:'0.31 mg/m³',chld:'↓0.05',alt:'+7 cm',altd:'↑3cm vs mean', depth:'~380m',depthd:'Kiama Canyon'},
+  sydney:      {lat:-33.85,lng:151.5, zoom:8, name:'Sydney Offshore',   sst:'20.1°C',sstd:'↑0.8°',       chl:'0.24 mg/m³',chld:'↓0.02',alt:'+4 cm',altd:'↑2cm', depth:'~800m',depthd:'Sydney Canyon'},
+  brisbane:    {lat:-27.5, lng:154.2, zoom:7, name:'Brisbane / Moreton',sst:'24.8°C',sstd:'↑1.4°',       chl:'0.18 mg/m³',chld:'—',    alt:'+9 cm',altd:'↑5cm', depth:'~200m',depthd:'Moreton shelf edge'},
+  cairns:      {lat:-16.9, lng:147.5, zoom:7, name:'Cairns / Coral Sea',sst:'28.4°C',sstd:'↑0.5°',       chl:'0.12 mg/m³',chld:'—',    alt:'+11 cm',altd:'↑4cm', depth:'~40m',depthd:'Great Barrier Reef shelf'},
+  geraldton:   {lat:-28.8, lng:115.0, zoom:7, name:'Geraldton / WA',   sst:'22.1°C',sstd:'↑0.9°',       chl:'0.42 mg/m³',chld:'↑0.08',alt:'-2 cm',altd:'↓3cm', depth:'~150m',depthd:'Abrolhos shelf edge'},
+  portlincoln: {lat:-34.7, lng:136.0, zoom:7, name:'Port Lincoln',     sst:'16.3°C',sstd:'↑0.4°',       chl:'0.88 mg/m³',chld:'↑0.22',alt:'-5 cm',altd:'↓2cm', depth:'~100m',depthd:'Great Australian Bight shelf'},
+  tasmania:    {lat:-43.0, lng:147.5, zoom:7, name:'Tasmania',         sst:'13.8°C',sstd:'↑0.2°',       chl:'1.12 mg/m³',chld:'↑0.31',alt:'-8 cm',altd:'↓4cm', depth:'~600m',depthd:'Tasman Fracture'},
+  australia:   {lat:-28.0, lng:134.0, zoom:4, name:'Australia',        sst:'21.0°C',sstd:'avg',          chl:'0.35 mg/m³',chld:'avg',  alt:'+2 cm',altd:'avg', depth:'—',depthd:'Varies by region'},
+};
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let curLayer   = 'sst';
+let curBase    = 'osm';
+let curOpacity = 0.75;
+let curDate    = todayStr();
+let oceanOverlay = null;
+let oceanLayerReqId = 0;
+let showContours = false;
+let loadTimer    = null;
+let overlayRefreshTimer = null;
+let clickMark    = null;
+let activeProbe  = null;
+
+function todayStr() {
+  // Use 2 days ago as "today" — satellite data has ~1-2 day lag
+  const d = new Date();
+  d.setDate(d.getDate() - 2);
+  return d.toISOString().slice(0,10);
+}
+
+// ── Map — standard Web Mercator ───────────────────────────────────────────────
+const map = L.map('map', {
+  center: [-34.58, 151.15],
+  zoom: 9,
+  zoomControl: true,
+  attributionControl: true,
+});
+map.attributionControl.setPrefix('');
+
+let baseLayer = null, baseLayer2 = null;
+const markGroup = L.layerGroup().addTo(map);
+const contourGroup = L.layerGroup().addTo(map);
+let contourReqId = 0;
+let currentReqId = 0;
+let showCurrents = false;
+const CURRENT_DS = {
+  host: 'https://coastwatch.noaa.gov',
+  datasetId: 'noaacwBLENDEDNRTcurrentsDaily',
+  // No WMS support at all (no colorBar metadata — raw vector components, not
+  // a scalar field ERDDAP's simple WMS can color), so unlike the other
+  // layers this is rendered entirely client-side from real u/v data, the
+  // same technique already used for the altimetry contour lines.
+};
+
+function buildBase(type) {
+  if (baseLayer)  { map.removeLayer(baseLayer);  baseLayer  = null; }
+  if (baseLayer2) { map.removeLayer(baseLayer2); baseLayer2 = null; }
+
+  const opts = {maxZoom:19, attribution:''};
+
+  if (type === 'osm') {
+    baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {...opts, attribution:'© OpenStreetMap'}).addTo(map);
+    baseLayer2 = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+      {...opts, attribution:'© OpenSeaMap', opacity:0.85}).addTo(map);
+
+  } else if (type === 'ocean') {
+    // Esri Ocean basemap — shows bathymetry, perfect for offshore fishing
+    baseLayer = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}',
+      {...opts, attribution:'© Esri Ocean'}).addTo(map);
+    baseLayer2 = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Reference/MapServer/tile/{z}/{y}/{x}',
+      {...opts, attribution:'', opacity:0.9}).addTo(map);
+
+  } else if (type === 'sat') {
+    baseLayer = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {...opts, attribution:'© Esri World Imagery'}).addTo(map);
+    // World_Imagery is plain photography with no place names — pair it with
+    // Esri's reference/labels overlay (the standard "Imagery with Labels" combo).
+    baseLayer2 = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+      {...opts, attribution:''}).addTo(map);
+
+  } else { // dark
+    baseLayer = L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      {...opts, attribution:'© CARTO'}).addTo(map);
+  }
+
+  // Keep ocean data and marks on top
+  if (oceanOverlay) oceanOverlay.addTo(map);
+  markGroup.addTo(map);
+  marksLayerGroup.addTo(map);
+}
+
+// ── Ocean image overlay ───────────────────────────────────────────────────────
+// Strategy: ERDDAP GetMap returns a correctly geo-referenced PNG in CRS:84
+// (lon/lat order). We pin it to the current map bounds using L.imageOverlay.
+// The image tag src is set directly — no crossOrigin — so the browser loads
+// it as a normal <img> without CORS restrictions.
+
+// Use L.tileLayer.wms (not a single stretched L.imageOverlay) so Leaflet
+// requests many small per-tile GetMap images and positions each with its
+// built-in EPSG:4326-on-Mercator reprojection. A single image stretched
+// corner-to-corner (the old approach) is accurate over a small area, but
+// ERDDAP's WMS only outputs EPSG:4326 (linear latitude spacing), while the
+// map itself renders in Web Mercator (non-linear latitude spacing) — over a
+// large bbox (zoomed out far) that mismatch becomes real, visible coastline
+// misalignment. Each WMS tile here covers a small enough area that the two
+// projections are indistinguishable, so alignment holds at every zoom level.
+function loadOceanLayer() {
+  // Contours are altimetry-derived (real SLA zero-crossing/eddy boundaries)
+  // but independent of which color layer is active — showContours lets you
+  // overlay them on SST/Chl to visually confirm eddies line up with
+  // temperature/chlorophyll fronts. Always uses the real curDate (not chl's
+  // lag-adjusted date below, which only applies to the chlorophyll image).
+  if (showContours) {
+    updateContours(curDate, map.getBounds());
+  } else {
+    contourGroup.clearLayers();
+  }
+
+  // Same independent-overlay pattern as contours — currents are their own
+  // real dataset, not tied to whichever color layer is active. Refreshing
+  // field data here doesn't touch the animation loop itself (already running
+  // via toggleCurrents/startCurrentAnimation) — it just updates what the
+  // already-running particles sample from.
+  if (showCurrents) {
+    updateCurrents(curDate, map.getBounds());
+  } else {
+    stopCurrentAnimation();
+  }
+
+  if (curLayer === 'off') { removeOverlay(); showSpinner(false); return; }
+
+  const cfg = LAYERS[curLayer];
+
+  // Snap chl to nearest past Monday for weekly composite.
+  // curDate is always a genuinely valid, already-correct date by this point —
+  // either the real latest (useLatestAvailableDate) or a chip built directly
+  // from it (buildDateChips), so no further offset/snap is applied here. An
+  // earlier version blindly shifted chl dates back 21 days on every load,
+  // which silently disagreed with whatever date the UI actually displayed.
+  const dateToUse = curDate;
+
+  showSpinner(true, 'Loading ' + cfg.name + '…');
+  removeOverlay();
+
+  const wmsOptions = {
+    layers: cfg.layer,
+    styles: '',
+    version: '1.1.1',
+    format: 'image/png',
+    transparent: true,
+    colorscalerange: cfg.crange,
+    palette: cfg.palette,
+    crs: L.CRS.EPSG4326,
+    opacity: curOpacity,
+    zIndex: 200,
+    interactive: false,
+  };
+  if (curLayer === 'depth') {
+    wmsOptions.belowmincolor = 'extend';
+    wmsOptions.abovemaxcolor = 'transparent';
+  } else {
+    wmsOptions.time = dateToUse + 'T12:00:00Z';
+    wmsOptions.abovemaxcolor = 'extend';
+    wmsOptions.belowmincolor = 'extend';
+  }
+
+  // Guard against a stale layer's delayed load/tileerror event firing after a
+  // quick layer switch and overwriting the note with the PREVIOUS layer's
+  // text — the old tile layer's listeners stay attached even once removed
+  // from the map, since removeOverlay() only unmounts it, it doesn't cancel
+  // in-flight tile requests or detach their handlers.
+  const myReqId = ++oceanLayerReqId;
+  oceanOverlay = L.tileLayer.wms(cfg.url, wmsOptions).addTo(map);
+  oceanOverlay.on('load', () => {
+    if (myReqId !== oceanLayerReqId) return;
+    showSpinner(false); setStatus(''); updateAvailNote(cfg);
+  });
+  oceanOverlay.on('tileerror', () => {
+    if (myReqId !== oceanLayerReqId) return;
+    showSpinner(false);
+    setStatus('Some ' + cfg.name + ' tiles failed to load — ERDDAP request may be rate-limited or unavailable.');
+  });
+}
+
+function removeOverlay() {
+  if (oceanOverlay) { map.removeLayer(oceanOverlay); oceanOverlay = null; }
+}
+
+// ── Altimetry contour lines ───────────────────────────────────────────────────
+// The NOAA ERDDAP altimetry source (like the other layers) has no CORS headers,
+// so a direct fetch() of the raw grid needed to compute contours is blocked.
+// Route it through fetchJsonViaCorsProxy() — the only way to get real
+// numeric data client-side from a static page with no server of its own.
+const CONTOUR_LEVELS = [-0.2, -0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15, 0.2];
+
+function marchingSquares(grid, lats, lons, level) {
+  const segments = [];
+  const rows = grid.length, cols = grid[0].length;
+  const lerp = (va, vb, pa, pb) => pa + (level - va) / (vb - va) * (pb - pa);
+
+  for (let i = 0; i < rows - 1; i++) {
+    for (let j = 0; j < cols - 1; j++) {
+      const tl = grid[i][j], tr = grid[i][j+1], br = grid[i+1][j+1], bl = grid[i+1][j];
+      if (tl == null || tr == null || br == null || bl == null) continue; // land / missing data
+
+      let c = 0;
+      if (tl > level) c |= 8;
+      if (tr > level) c |= 4;
+      if (br > level) c |= 2;
+      if (bl > level) c |= 1;
+      if (c === 0 || c === 15) continue;
+
+      const lat0 = lats[i], lat1 = lats[i+1];
+      const lon0 = lons[j], lon1 = lons[j+1];
+      const top    = () => [lat0, lerp(tl, tr, lon0, lon1)];
+      const right  = () => [lerp(tr, br, lat0, lat1), lon1];
+      const bottom = () => [lat1, lerp(bl, br, lon0, lon1)];
+      const left   = () => [lerp(tl, bl, lat0, lat1), lon0];
+
+      // Classic marching-squares edge table. Cases 5/10 are saddle points;
+      // we pick one fixed decomposition (no asymptotic decider) — negligible
+      // visual difference at this grid resolution.
+      const edgesByCase = {
+        1:[left,bottom], 2:[bottom,right], 3:[left,right],
+        4:[top,right],   5:[top,left,bottom,right],
+        6:[top,bottom],  7:[top,left],
+        8:[top,left],    9:[top,bottom],
+        10:[top,right,bottom,left], 11:[top,right],
+        12:[left,right], 13:[bottom,right],
+        14:[left,bottom],
+      };
+      const e = edgesByCase[c];
+      if (!e) continue;
+      segments.push([e[0](), e[1]()]);
+      if (e.length === 4) segments.push([e[2](), e[3]()]);
+    }
+  }
+  return segments;
+}
+
+// Multiple free CORS proxies chained for resilience. corsproxy.io has proven
+// unreliable in real-world use — it worked in testing but started returning
+// "Server-side requests are not allowed on your plan" for real users without
+// any code change on our end, exactly the risk of depending on a single free
+// third-party service. No proxy here is trustworthy alone, so try each in
+// order and only fail if all of them do.
+// A hung connection (no response at all, not even an error) would otherwise
+// block an attempt indefinitely and never reach the next proxy in the chain.
+function fetchWithTimeout(url, timeoutMs) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  return fetch(url, {signal: ctrl.signal}).finally(() => clearTimeout(t));
+}
+
+async function fetchJsonViaCorsProxy(target) {
+  const attempts = [
+    async () => {
+      const resp = await fetchWithTimeout('https://corsproxy.io/?url=' + encodeURIComponent(target), 9000);
+      if (!resp.ok) throw new Error('corsproxy.io: ' + resp.status);
+      return resp.json();
+    },
+    async () => {
+      // r.jina.ai is a content-reader service, not a purpose-built proxy —
+      // it wraps the real response in "Title/URL Source/..." text ahead of a
+      // "Markdown Content:" marker, so the JSON has to be extracted out.
+      const resp = await fetchWithTimeout('https://r.jina.ai/' + target, 9000);
+      if (!resp.ok) throw new Error('r.jina.ai: ' + resp.status);
+      const text = await resp.text();
+      const marker = 'Markdown Content:';
+      const idx = text.lastIndexOf(marker);
+      const body = idx >= 0 ? text.slice(idx + marker.length) : text;
+      const braceIdx = body.indexOf('{');
+      if (braceIdx < 0) throw new Error('r.jina.ai: no JSON found in response');
+      return JSON.parse(body.slice(braceIdx));
+    },
+    async () => {
+      // Third fallback — a different service, different failure modes
+      // (bot-detection, rate limits) than the two above, so a failure that
+      // takes both of them down at once is less likely to also take this
+      // one down.
+      const resp = await fetchWithTimeout('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target), 9000);
+      if (!resp.ok) throw new Error('codetabs: ' + resp.status);
+      return resp.json();
+    },
+  ];
+  let lastErr;
+  for (const attempt of attempts) {
+    try { return await attempt(); }
+    catch (err) { lastErr = err; }
+  }
+  throw lastErr || new Error('all CORS proxies failed');
+}
+
+async function updateContours(dateToUse, bounds) {
+  const myReqId = ++contourReqId;
+  const latMin = Math.max(bounds.getSouth(), -89.9);
+  const latMax = Math.min(bounds.getNorth(),  89.9);
+  const lonMin = Math.max(bounds.getWest(),  -179.9);
+  const lonMax = Math.min(bounds.getEast(),   179.9);
+
+  // Cap the requested grid to a manageable size regardless of zoom level
+  const NATIVE_RES = 0.25, MAX_POINTS_PER_AXIS = 120;
+  const latStride = Math.max(1, Math.ceil((latMax - latMin) / NATIVE_RES / MAX_POINTS_PER_AXIS));
+  const lonStride = Math.max(1, Math.ceil((lonMax - lonMin) / NATIVE_RES / MAX_POINTS_PER_AXIS));
+
+  const query = `sla[(${dateToUse}T12:00:00Z)]` +
+    `[(${latMin.toFixed(4)}):${latStride}:(${latMax.toFixed(4)})]` +
+    `[(${lonMin.toFixed(4)}):${lonStride}:(${lonMax.toFixed(4)})]`;
+  const target = `https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.json?${query}`;
+
+  try {
+    const data = await fetchJsonViaCorsProxy(target);
+    if (myReqId !== contourReqId) return; // a newer request superseded this one
+
+    const rows = data?.table?.rows || [];
+    const latSet = [...new Set(rows.map(r => r[1]))].sort((a,b) => a - b);
+    const lonSet = [...new Set(rows.map(r => r[2]))].sort((a,b) => a - b);
+    const idx = new Map();
+    latSet.forEach((v,i) => idx.set('lat'+v, i));
+    lonSet.forEach((v,j) => idx.set('lon'+v, j));
+
+    const grid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+    for (const r of rows) {
+      const v = r[3];
+      if (v == null) continue;
+      grid[idx.get('lat'+r[1])][idx.get('lon'+r[2])] = v;
+    }
+
+    contourGroup.clearLayers();
+    if (latSet.length < 2 || lonSet.length < 2) return;
+
+    for (const level of CONTOUR_LEVELS) {
+      const segments = marchingSquares(grid, latSet, lonSet, level);
+      if (!segments.length) continue;
+      const isZero = level === 0;
+      if (isZero) {
+        // Halo effect: a wider light casing under a dark core line, so the
+        // zero line stays visible on light (Street), photo (Satellite), and
+        // dark (Ocean/Dark) basemaps alike — a single flat color disappears
+        // against whichever basemap happens to match it.
+        L.polyline(segments, {
+          color: '#ffffff', weight: 2.5, opacity: 0.85, interactive: false,
+        }).addTo(contourGroup);
+        L.polyline(segments, {
+          color: '#0b1320', weight: 1.7, opacity: 1, interactive: false,
+        }).addTo(contourGroup);
+      } else {
+        L.polyline(segments, {
+          color: 'rgba(11,19,32,0.45)', weight: 1, opacity: 0.7, interactive: false,
+        }).addTo(contourGroup);
+      }
+    }
+  } catch (err) {
+    if (myReqId !== contourReqId) return;
+    console.log('OceanFishy contour fetch failed:', err.message);
+  }
+}
+
+// ── Ocean current — animated particle flow (Windy-style) ──────────────────────
+// noaacwBLENDEDNRTcurrentsDaily has no colorBar metadata on its u/v
+// components, so ERDDAP's WMS refuses to serve it at all (confirmed: 404
+// "never available via WMS"). Rendered entirely client-side: fetch the real
+// u/v grid, then animate particles advected through it on a canvas overlay —
+// the same technique real wind/current visualizers (including Windy) use,
+// just implemented directly instead of via a library, to stay dependency-free.
+let currentFieldData = null; // {latSet, lonSet, uGrid, vGrid} for bilinear sampling
+let currentParticles = [];
+let currentAnimHandle = null;
+let currentCanvas = null, currentCtx = null;
+const PARTICLE_COUNT = 900;
+const PARTICLE_MAX_AGE = 100; // frames before forced respawn, keeps trails from getting stale
+
+function ensureCurrentCanvas() {
+  if (currentCanvas) return;
+  currentCanvas = document.createElement('canvas');
+  currentCanvas.style.position = 'absolute';
+  currentCanvas.style.top = '0';
+  currentCanvas.style.left = '0';
+  currentCanvas.style.width = '100%';
+  currentCanvas.style.height = '100%';
+  currentCanvas.style.pointerEvents = 'none';
+  currentCanvas.style.zIndex = 250; // above the WMS ocean-layer tiles, below UI panels
+  map.getContainer().appendChild(currentCanvas);
+  currentCtx = currentCanvas.getContext('2d');
+  resizeCurrentCanvas();
+}
+function resizeCurrentCanvas() {
+  if (!currentCanvas) return;
+  const size = map.getSize();
+  currentCanvas.width = size.x;
+  currentCanvas.height = size.y;
+}
+function removeCurrentCanvas() {
+  if (currentCanvas) { currentCanvas.remove(); currentCanvas = null; currentCtx = null; }
+}
+
+// Bilinear-interpolate (u,v) at any lat/lng from the last-fetched grid.
+function sampleCurrentField(lat, lon) {
+  const f = currentFieldData;
+  if (!f || lat < f.latSet[0] || lat > f.latSet[f.latSet.length-1] ||
+      lon < f.lonSet[0] || lon > f.lonSet[f.lonSet.length-1]) return null;
+  let i = f.latSet.findIndex(v => v > lat); if (i <= 0) i = 1; if (i >= f.latSet.length) i = f.latSet.length - 1;
+  let j = f.lonSet.findIndex(v => v > lon); if (j <= 0) j = 1; if (j >= f.lonSet.length) j = f.lonSet.length - 1;
+  const tLat = (lat - f.latSet[i-1]) / (f.latSet[i] - f.latSet[i-1]);
+  const tLon = (lon - f.lonSet[j-1]) / (f.lonSet[j] - f.lonSet[j-1]);
+  const bilerp = (grid) => {
+    const a = grid[i-1][j-1], b = grid[i-1][j], c = grid[i][j-1], d = grid[i][j];
+    if (a == null || b == null || c == null || d == null) return null;
+    const top = a + (b - a) * tLon, bot = c + (d - c) * tLon;
+    return top + (bot - top) * tLat;
+  };
+  const u = bilerp(f.uGrid), v = bilerp(f.vGrid);
+  return (u == null || v == null) ? null : {u, v};
+}
+
+// Particles live in canvas PIXEL space (not lat/lng) — real current speeds
+// (~0.1-1 m/s) are imperceptibly slow even accounting for zoom level, so
+// trying to convert m/s to an accurate degrees-per-frame step made the first
+// version of this invisible. Every real particle-flow visualizer (Windy
+// included) exaggerates speed for legibility rather than animating at true
+// physical scale; sampling the field via containerPointToLatLng each frame
+// keeps direction/relative-speed real while making the visual speed a
+// tunable constant instead of a physically tiny one.
+function respawnParticle(p) {
+  p.x = Math.random() * currentCanvas.width;
+  p.y = Math.random() * currentCanvas.height;
+  p.age = Math.floor(Math.random() * PARTICLE_MAX_AGE); // stagger so respawns aren't synchronized
+  p.prevX = null; p.prevY = null;
+}
+
+function initCurrentParticles() {
+  currentParticles = Array.from({length: PARTICLE_COUNT}, () => {
+    const p = {x:0, y:0, age:0, prevX:null, prevY:null};
+    respawnParticle(p);
+    return p;
+  });
+}
+
+// Tuned so a slow real current (~2kt visual floor) moves a clearly visible
+// ~3px per frame at 60fps — the first attempt (18 px/knot/sec, ~0.6px/frame)
+// was sub-pixel and invisible despite the canvas genuinely drawing every
+// frame (confirmed via getImageData — this was a tuning bug, not a rendering
+// pipeline bug).
+const CURRENT_VISUAL_PX_PER_KNOT_PER_SEC = 90;
+const CURRENT_MIN_VISUAL_KNOTS = 2; // floor so slow real currents (~0.1-0.3 m/s here) still visibly move
+
+function stepAndDrawParticles() {
+  if (!showCurrents || !currentCtx) return;
+  // Fade the previous frame instead of clearing — creates the flowing-trail
+  // look. A higher alpha here = shorter, snappier trails.
+  currentCtx.fillStyle = 'rgba(6,14,26,0.08)';
+  currentCtx.fillRect(0, 0, currentCanvas.width, currentCanvas.height);
+
+  for (const p of currentParticles) {
+    const latlng = map.containerPointToLatLng([p.x, p.y]);
+    const field = sampleCurrentField(latlng.lat, latlng.lng);
+    if (!field) { respawnParticle(p); continue; }
+    const mag = Math.sqrt(field.u*field.u + field.v*field.v) || 1e-6;
+    const knots = mag * 1.94384;
+    const visualKnots = Math.max(knots, CURRENT_MIN_VISUAL_KNOTS);
+    const stepPx = visualKnots * CURRENT_VISUAL_PX_PER_KNOT_PER_SEC / 60; // per-frame at ~60fps
+    // u = eastward(+x), v = northward(screen -y, since canvas y grows downward)
+    const dx = (field.u / mag) * stepPx;
+    const dy = -(field.v / mag) * stepPx;
+
+    if (p.prevX != null) {
+      currentCtx.strokeStyle = knots < 0.5 ? 'rgba(143,214,242,0.85)' : knots < 1.5 ? 'rgba(58,160,216,0.9)' : 'rgba(31,111,174,0.95)';
+      currentCtx.lineWidth = knots < 1.5 ? 1 : 1.6;
+      currentCtx.beginPath();
+      currentCtx.moveTo(p.prevX, p.prevY);
+      currentCtx.lineTo(p.x, p.y);
+      currentCtx.stroke();
+    }
+
+    p.prevX = p.x; p.prevY = p.y;
+    p.x += dx; p.y += dy;
+    p.age++;
+    if (p.age > PARTICLE_MAX_AGE || p.x < 0 || p.x > currentCanvas.width || p.y < 0 || p.y > currentCanvas.height) respawnParticle(p);
+  }
+  currentAnimHandle = requestAnimationFrame(stepAndDrawParticles);
+}
+
+function startCurrentAnimation() {
+  ensureCurrentCanvas();
+  initCurrentParticles();
+  if (!currentAnimHandle) currentAnimHandle = requestAnimationFrame(stepAndDrawParticles);
+}
+function stopCurrentAnimation() {
+  if (currentAnimHandle) { cancelAnimationFrame(currentAnimHandle); currentAnimHandle = null; }
+  removeCurrentCanvas();
+  currentParticles = [];
+}
+
+async function updateCurrents(dateIso, bounds) {
+  const myReqId = ++currentReqId;
+  const latMin = Math.max(bounds.getSouth(), -89.9);
+  const latMax = Math.min(bounds.getNorth(),  89.9);
+  const lonMin = Math.max(bounds.getWest(),  -179.9);
+  const lonMax = Math.min(bounds.getEast(),   179.9);
+
+  // Finer grid than the old static arrows — the particle field interpolates
+  // between points, so more samples = smoother-looking flow. Capped fairly
+  // low (not 40) because at low zoom the bbox spans a huge area and a large
+  // griddap query routed through a public CORS proxy can time out entirely
+  // (confirmed: corsproxy.io 504 + the r.jina.ai fallback also failing on a
+  // wide zoomed-out request) — a coarser grid still interpolates smoothly
+  // but responds fast enough to actually load.
+  const NATIVE_RES = 0.25, MAX_POINTS_PER_AXIS = 22;
+  const latStride = Math.max(1, Math.ceil((latMax - latMin) / NATIVE_RES / MAX_POINTS_PER_AXIS));
+  const lonStride = Math.max(1, Math.ceil((lonMax - lonMin) / NATIVE_RES / MAX_POINTS_PER_AXIS));
+
+  // Use ERDDAP's "(last)" time index rather than the globally-selected
+  // curDate: this dataset (noaacwBLENDEDNRTcurrentsDaily) has its own lag
+  // that's often a day or more behind SST/altimetry, so requesting curDate's
+  // exact date 404s ("Start is greater than the axis maximum") whenever the
+  // active layer's latest date is newer than the currents dataset's latest.
+  const timeQ = `(last)`;
+  const latQ  = `(${latMin.toFixed(4)}):${latStride}:(${latMax.toFixed(4)})`;
+  const lonQ  = `(${lonMin.toFixed(4)}):${lonStride}:(${lonMax.toFixed(4)})`;
+  const query = `u_current[${timeQ}][${latQ}][${lonQ}],v_current[${timeQ}][${latQ}][${lonQ}]`;
+  const target = `${CURRENT_DS.host}/erddap/griddap/${CURRENT_DS.datasetId}.json?${query}`;
+
+  try {
+    const data = await fetchJsonViaCorsProxy(target);
+    if (myReqId !== currentReqId) return; // a newer request superseded this one
+
+    const rows = data?.table?.rows || [];
+    if (rows.length && rows[0][0]) {
+      const actualDate = rows[0][0].slice(0, 10);
+      if (actualDate !== curDate) {
+        setStatus(`Currents: latest available is ${actualDate} (UTC) — ${curDate} not yet published for this dataset`);
+      }
+    }
+    const latSet = [...new Set(rows.map(r => r[1]))].sort((a,b) => a - b);
+    const lonSet = [...new Set(rows.map(r => r[2]))].sort((a,b) => a - b);
+    const idx = new Map();
+    latSet.forEach((v,i) => idx.set('lat'+v, i));
+    lonSet.forEach((v,j) => idx.set('lon'+v, j));
+    const uGrid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+    const vGrid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+    for (const r of rows) {
+      const [, lat, lon, u, v] = r;
+      if (u == null || v == null) continue;
+      const i = idx.get('lat'+lat), j = idx.get('lon'+lon);
+      uGrid[i][j] = u; vGrid[i][j] = v;
+    }
+    currentFieldData = {latSet, lonSet, uGrid, vGrid};
+    // Particle (re)initialization is handled by startCurrentAnimation, called
+    // after this resolves on first activation — by then the canvas exists.
+    // On a pan/zoom refresh, particles already exist and just keep sampling
+    // this updated field, no need to reset them here.
+  } catch (err) {
+    if (myReqId !== currentReqId) return;
+    console.log('OceanFishy current fetch failed:', err.message);
+    // Don't leave stale field data in place — it's keyed to the OLD bounds,
+    // so most particles would silently fail their in-range check and never
+    // draw, making it look like currents "aren't rendering" with no
+    // explanation. Clearing it plus a status message makes the failure
+    // visible instead of a confusing blank/sparse overlay.
+    currentFieldData = null;
+    setStatus('Currents unavailable right now — the ocean-current data source didn’t respond in time. Try again or zoom in to a smaller area.');
+  }
+}
+
+function toggleCurrents() {
+  showCurrents = !showCurrents;
+  document.getElementById('b-currents').classList.toggle('on', showCurrents);
+  if (showCurrents) {
+    updateCurrents(curDate, map.getBounds()).then(startCurrentAnimation);
+  } else {
+    stopCurrentAnimation();
+  }
+}
+map.on('resize', resizeCurrentCanvas);
+window.addEventListener('resize', resizeCurrentCanvas);
+
+// ── Wind & Swell arrow overlays (Open-Meteo — free, no key, real CORS) ────────
+// Same arrow-grid technique as the Current layer, but Open-Meteo is a
+// point-forecast API (not a WMS grid), so a batched multi-location "current
+// conditions" request stands in for a grid fetch — one HTTP call covering
+// every sample point in the visible bounds.
+const windGroup = L.layerGroup().addTo(map);
+const swellGroup = L.layerGroup().addTo(map);
+let windReqId = 0, swellReqId = 0;
+let showWind = false, showSwell = false;
+const WIND_GRID = 8; // NxN sample points — coarser than currents, arrows need room
+
+function sampleGrid(bounds, n) {
+  const latMin = Math.max(bounds.getSouth(), -89.9), latMax = Math.min(bounds.getNorth(), 89.9);
+  const lonMin = Math.max(bounds.getWest(), -179.9), lonMax = Math.min(bounds.getEast(), 179.9);
+  const lats = [], lons = [];
+  for (let i = 0; i < n; i++) {
+    const la = latMin + (i + 0.5) / n * (latMax - latMin);
+    for (let j = 0; j < n; j++) {
+      const lo = lonMin + (j + 0.5) / n * (lonMax - lonMin);
+      lats.push(la.toFixed(3));
+      lons.push(lo.toFixed(3));
+    }
+  }
+  return {lats, lons};
+}
+
+function flowArrowIcon(magnitude, maxScale, bearingDeg, fill) {
+  const size = Math.min(28, 10 + magnitude * maxScale);
+  const opacity = Math.min(1, 0.4 + magnitude * maxScale * 0.03);
+  return L.divIcon({
+    className: 'current-arrow',
+    html: `<svg width="${size}" height="${size}" viewBox="0 0 24 24" style="transform:rotate(${bearingDeg}deg);opacity:${opacity};display:block">
+      <path d="M12 2 L18 17 L12 13 L6 17 Z" fill="${fill}" stroke="#04263a" stroke-width="0.8"/>
+    </svg>`,
+    iconSize: [size, size],
+    iconAnchor: [size/2, size/2],
+  });
+}
+
+async function updateWind(bounds) {
+  const myReqId = ++windReqId;
+  const {lats, lons} = sampleGrid(bounds, WIND_GRID);
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m`;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('wind fetch failed: ' + resp.status);
+    const data = await resp.json();
+    if (myReqId !== windReqId) return;
+    windGroup.clearLayers();
+    const locs = Array.isArray(data) ? data : [data];
+    locs.forEach(loc => {
+      if (!loc.current || loc.current.wind_speed_10m == null || loc.current.wind_direction_10m == null) return;
+      const kt = loc.current.wind_speed_10m / 1.852;
+      // wind_direction_10m is meteorological "from" bearing — +180 to point
+      // the arrow in the direction the wind is actually blowing toward,
+      // matching the current arrows' flow-direction convention.
+      const bearing = (loc.current.wind_direction_10m + 180) % 360;
+      const fill = kt < 10 ? '#8fe3b0' : kt < 20 ? '#3dc47e' : kt < 30 ? '#e0a83d' : '#e8573a';
+      L.marker([loc.latitude, loc.longitude], {
+        icon: flowArrowIcon(kt, 1.1, bearing, fill), interactive: false, keyboard: false,
+      }).addTo(windGroup);
+    });
+  } catch (err) {
+    if (myReqId !== windReqId) return;
+    console.log('OceanFishy wind fetch failed:', err.message);
+  }
+}
+
+async function updateSwell(bounds) {
+  const myReqId = ++swellReqId;
+  const {lats, lons} = sampleGrid(bounds, WIND_GRID);
+  const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${lats.join(',')}&longitude=${lons.join(',')}&current=swell_wave_height,swell_wave_direction,swell_wave_period`;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('swell fetch failed: ' + resp.status);
+    const data = await resp.json();
+    if (myReqId !== swellReqId) return;
+    swellGroup.clearLayers();
+    const locs = Array.isArray(data) ? data : [data];
+    locs.forEach(loc => {
+      const c = loc.current;
+      if (!c || c.swell_wave_height == null || c.swell_wave_direction == null) return;
+      const bearing = (c.swell_wave_direction + 180) % 360;
+      const h = c.swell_wave_height;
+      const fill = h < 0.5 ? '#8fd6f2' : h < 1.5 ? '#3aa0d8' : h < 2.5 ? '#1f6fae' : '#0d3b6e';
+      L.marker([loc.latitude, loc.longitude], {
+        icon: flowArrowIcon(h, 8, bearing, fill), interactive: false, keyboard: false,
+      }).addTo(swellGroup);
+    });
+  } catch (err) {
+    if (myReqId !== swellReqId) return;
+    console.log('OceanFishy swell fetch failed:', err.message);
+  }
+}
+
+function toggleWind() {
+  showWind = !showWind;
+  document.getElementById('b-wind').classList.toggle('on', showWind);
+  if (showWind) updateWind(map.getBounds()); else windGroup.clearLayers();
+}
+function toggleSwell() {
+  showSwell = !showSwell;
+  document.getElementById('b-swell').classList.toggle('on', showSwell);
+  if (showSwell) updateSwell(map.getBounds()); else swellGroup.clearLayers();
+}
+
+// ── Point forecast panel (Wind/Gust, Temp, Pressure, Waves, Swell, Swell
+// Period, Wave Power, Tide, Moon Phase) — Open-Meteo forecast + marine APIs,
+// 16 days (their maximum forecast horizon). ──────────────────────────────────
+let forecastModeActive = false;
+let forecastReqId = 0;
+
+function toggleForecastMode() {
+  forecastModeActive = !forecastModeActive;
+  document.getElementById('b-forecast').classList.toggle('on', forecastModeActive);
+  map.getContainer().style.cursor = forecastModeActive ? 'crosshair' : '';
+  setStatus(forecastModeActive ? 'Forecast: click a point on the map (click again anywhere to update)' : '');
+  if (!forecastModeActive) document.getElementById('forecast-panel').style.display = 'none';
+}
+
+// Closing the panel (✕) also exits forecast-click mode — otherwise the mode
+// stays armed and the very next map click reopens the panel right away,
+// making the ✕ look broken.
+function closeForecastPanel() {
+  document.getElementById('forecast-panel').style.display = 'none';
+  forecastModeActive = false;
+  document.getElementById('b-forecast').classList.remove('on');
+  map.getContainer().style.cursor = '';
+  setStatus('');
+}
+
+// Simple synodic-month approximation, accurate to within ~a day — plenty for
+// a "what's the moon doing this trip" readout, not a navigation instrument.
+function moonPhase(date) {
+  const synodicMonth = 29.53058867;
+  const knownNewMoon = Date.UTC(2000, 0, 6, 18, 14);
+  const daysSince = (date.getTime() - knownNewMoon) / 86400000;
+  let phase = (daysSince % synodicMonth) / synodicMonth;
+  if (phase < 0) phase += 1;
+  const names = ['New Moon','Waxing Crescent','First Quarter','Waxing Gibbous','Full Moon','Waning Gibbous','Last Quarter','Waning Crescent'];
+  const emojis = ['🌑','🌒','🌓','🌔','🌕','🌖','🌗','🌘'];
+  const idx = Math.round(phase * 8) % 8;
+  const illumination = Math.round((1 - Math.cos(phase * 2 * Math.PI)) / 2 * 100);
+  return {phase, name: names[idx], emoji: emojis[idx], illumination};
+}
+
+// Deep-water wave power flux approximation: P ≈ 0.5·Hs²·Te (kW/m). A real
+// energy period (Te) needs the full spectrum; using the reported wave period
+// directly is a standard simplification, not a measured value — labelled as
+// an estimate in the UI for exactly that reason.
+function wavePowerKw(hs, te) {
+  if (hs == null || te == null) return null;
+  return 0.5 * hs * hs * te;
+}
+
+// Local maxima/minima of the tide curve, at hourly resolution — fine for
+// "roughly when's high/low tide", not survey-grade timing.
+function findTideExtremes(times, values) {
+  const extremes = [];
+  for (let i = 1; i < values.length - 1; i++) {
+    if (values[i] == null || values[i-1] == null || values[i+1] == null) continue;
+    if (values[i] > values[i-1] && values[i] > values[i+1]) extremes.push({time: times[i], height: values[i], type: 'High'});
+    else if (values[i] < values[i-1] && values[i] < values[i+1]) extremes.push({time: times[i], height: values[i], type: 'Low'});
+  }
+  return extremes;
+}
+
+// ── Windy-style hourly timeline helpers ────────────────────────────────────────
+function weatherIcon(code, isDay) {
+  if (code == null) return '·';
+  if (code === 0) return isDay ? '☀️' : '🌙';
+  if (code <= 2) return isDay ? '🌤️' : '☁️';
+  if (code === 3) return '☁️';
+  if (code === 45 || code === 48) return '🌫️';
+  if (code >= 51 && code <= 57) return '🌦️';
+  if (code >= 61 && code <= 67) return '🌧️';
+  if (code >= 71 && code <= 77) return '🌨️';
+  if (code >= 80 && code <= 82) return '🌧️';
+  if (code >= 85 && code <= 86) return '🌨️';
+  if (code >= 95) return '⛈️';
+  return '·';
+}
+
+// Rough knots→color bands matching Windy's wind-strength palette — a visual
+// cue for "windy" columns while scanning the timeline, not a precise scale.
+function windColor(kt) {
+  if (kt == null) return 'transparent';
+  const bands = [6,12,17,21,25,29,33,38,45];
+  const colors = ['transparent','#4d7a3d','#6fae4f','#a9c93f','#d9c93f','#e8a83a','#e8683a','#e8433a','#d83a6b','#b83aa0'];
+  let i = 0;
+  while (i < bands.length && kt >= bands[i]) i++;
+  return colors[i];
+}
+
+// ── Point forecast panel — Windy-style hourly timeline with a draggable
+// time cursor, replacing the old vertical SVG line-chart layout. ──────────────
+let fcState = null; // {wx, marine, colTimes, colW, labelW, curCol}
+
+async function openForecastPanel(lat, lng) {
+  const panel = document.getElementById('forecast-panel');
+  panel.style.display = 'flex';
+  document.getElementById('fc-coords').textContent =
+    Math.abs(lat).toFixed(3) + (lat<0?'°S':'°N') + ' · ' + Math.abs(lng).toFixed(3) + (lng>0?'°E':'°W');
+  document.getElementById('fc-body').innerHTML = '<div style="font-size:12px;color:var(--dim);padding:20px 0;text-align:center">Loading forecast…</div>';
+  document.getElementById('fc-summary').innerHTML = '';
+
+  const myReqId = ++forecastReqId;
+  try {
+    const [wx, marine] = await Promise.all([
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=temperature_2m,precipitation,weather_code,is_day,pressure_msl,wind_speed_10m,wind_gusts_10m,wind_direction_10m&forecast_days=16&wind_speed_unit=kn&timezone=UTC`).then(r=>r.json()),
+      fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_direction,swell_wave_period,sea_level_height_msl&forecast_days=16&timezone=UTC`).then(r=>r.json()),
+    ]);
+    if (myReqId !== forecastReqId) return;
+    if (wx.error) throw new Error(wx.reason || 'weather API error');
+    if (marine.error) throw new Error(marine.reason || 'marine API error');
+    renderForecastPanel(wx, marine);
+  } catch (err) {
+    if (myReqId !== forecastReqId) return;
+    document.getElementById('fc-body').innerHTML =
+      `<div style="font-size:12px;color:var(--dim);padding:20px 0;text-align:center">Forecast unavailable — ${err.message}</div>`;
+  }
+}
+
+function renderForecastPanel(wx, marine) {
+  const times = wx.hourly.time;
+  const STEP = 3; // 3-hourly columns, matching Windy's default zoom level
+  const colTimes = [];
+  for (let i = 0; i < times.length; i += STEP) colTimes.push(i);
+  const nCols = colTimes.length;
+  const colW = 26, labelW = 92;
+  const nowMs = Date.now();
+
+  const moon = moonPhase(new Date());
+  const wavePower = marine.hourly.wave_height.map((h,i) => wavePowerKw(h, marine.hourly.wave_period[i]));
+  const tideVals = marine.hourly.sea_level_height_msl;
+  const extremes = findTideExtremes(times, tideVals).filter(e => new Date(e.time + 'Z').getTime() >= nowMs).slice(0, 4);
+
+  // Group columns by calendar day for the header row
+  const dayGroups = [];
+  colTimes.forEach((hi, ci) => {
+    const day = times[hi].slice(0,10);
+    if (!dayGroups.length || dayGroups[dayGroups.length-1].day !== day) dayGroups.push({day, count: 0});
+    dayGroups[dayGroups.length-1].count++;
+  });
+  const dowFull = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const dowShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  const gridCols = `${labelW}px repeat(${nCols}, ${colW}px)`;
+  const label = (text) => `<div style="position:sticky;left:0;z-index:2;background:rgba(11,19,32,.97);font-size:9px;color:var(--dim);display:flex;align-items:center;padding:0 6px;border-right:1px solid var(--bdr);white-space:nowrap;line-height:1.2">${text}</div>`;
+  // A subtle tint over night-time columns (is_day===0), applied to the plain
+  // (non color-scaled) rows so day/night is readable at a glance without
+  // fighting the wind-strength color coding.
+  // Both ends get a tint now, not just night — a plain/transparent day
+  // column next to a dark night one only reads clearly right at the
+  // boundary; a warm lighter wash on day columns makes the split obvious
+  // at a glance across the whole row.
+  const nightBg = (isDay) => isDay === 0
+    ? 'background:rgba(4,7,16,.6);'
+    : 'background:rgba(255,214,120,.09);';
+
+  let dayRow = label('');
+  dayGroups.forEach(g => {
+    const d = new Date(g.day + 'T00:00:00Z');
+    dayRow += `<div style="grid-column:span ${g.count};font-size:11px;font-weight:600;padding:4px 0 4px 4px;border-left:1px solid var(--bdr)">${dowFull[d.getUTCDay()]} ${d.getUTCDate()}</div>`;
+  });
+
+  let hourRow = label('Hour'), iconRow = label('Weather'), tempRow = label('Temp °C'),
+      rainRow = label('Rain mm'), windRow = label('Wind/Gust kt'),
+      pressRow = label('Pressure hPa'), waveRow = label('Wave m'),
+      swellRow = label('Swell m/s'), powerRow = label('Power kW/m'), tideRow = label('Tide m');
+
+  // Solid dart / navigation-pin arrow — a single notched-tail polygon reads
+  // unambiguously at any rotation, unlike a bare triangle (no visual "tail"
+  // to anchor the eye) — same shape GPS heading indicators use.
+  const dirArrow = (deg, size) => deg == null ? '' : `
+    <svg width="${size}" height="${size}" viewBox="0 0 20 20" style="display:inline-block;vertical-align:middle;transform:rotate(${deg+180}deg)">
+      <polygon points="10,1 17,19 10,14.5 3,19" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/>
+    </svg>`;
+
+  let nowColIdx = 0;
+  colTimes.forEach((hi, ci) => {
+    const d = new Date(times[hi] + 'Z');
+    if (d.getTime() <= nowMs) nowColIdx = ci;
+    const h = d.getUTCHours();
+    const hourLabel = h===0 ? '12A' : h<12 ? h+'A' : h===12 ? '12P' : (h-12)+'P';
+    const isDay = wx.hourly.is_day ? wx.hourly.is_day[hi] : 1;
+    const nbg = nightBg(isDay);
+
+    hourRow += `<div class="fc-col" onclick="fcScrubTo(${ci})" style="${nbg}font-size:8px;color:var(--dim);text-align:center;padding:3px 0;cursor:pointer">${hourLabel}</div>`;
+
+    const code = wx.hourly.weather_code ? wx.hourly.weather_code[hi] : null;
+    iconRow += `<div style="${nbg}text-align:center;font-size:13px;padding:2px 0">${weatherIcon(code, isDay)}</div>`;
+
+    const t = wx.hourly.temperature_2m[hi];
+    tempRow += `<div style="${nbg}text-align:center;font-size:10px;font-weight:600;padding:2px 0">${t!=null?Math.round(t)+'°':'–'}</div>`;
+
+    let rainSum = 0;
+    for (let k = hi; k < Math.min(hi+STEP, times.length); k++) { const p = wx.hourly.precipitation?.[k]; if (p!=null) rainSum += p; }
+    const barH = Math.max(2, Math.min(16, rainSum*10));
+    rainRow += `<div style="${nbg}height:18px;display:flex;align-items:flex-end;justify-content:center;padding-top:2px" title="${rainSum.toFixed(1)}mm">${rainSum>0.05?`<div style="width:6px;height:${barH}px;background:#4a90d9;border-radius:1px"></div>`:''}</div>`;
+
+    const wkt = wx.hourly.wind_speed_10m[hi], gkt = wx.hourly.wind_gusts_10m[hi], wdir = wx.hourly.wind_direction_10m[hi];
+    windRow += `<div style="text-align:center;padding:2px 0 1px;background:${windColor(wkt)}">
+      <div style="line-height:1;margin-bottom:1px">${dirArrow(wdir,11)}</div>
+      <div style="font-size:9px;font-weight:700;line-height:1.2">${wkt!=null?Math.round(wkt):'–'}</div>
+      <div style="font-size:8px;opacity:.75;line-height:1.15">${gkt!=null?Math.round(gkt):'–'}</div>
+    </div>`;
+
+    const p = wx.hourly.pressure_msl[hi];
+    pressRow += `<div style="${nbg}text-align:center;font-size:9px;color:var(--dim);padding:2px 0">${p!=null?Math.round(p):'–'}</div>`;
+
+    const wh = marine.hourly.wave_height[hi], wavedir = marine.hourly.wave_direction?.[hi];
+    waveRow += `<div style="${nbg}text-align:center;font-size:9px;padding:2px 0">
+      <div style="line-height:1">${dirArrow(wavedir,9)}</div>
+      <div>${wh!=null?wh.toFixed(1):'–'}</div>
+    </div>`;
+
+    const sh = marine.hourly.swell_wave_height[hi], sp = marine.hourly.swell_wave_period[hi], sdir = marine.hourly.swell_wave_direction?.[hi];
+    swellRow += `<div style="${nbg}text-align:center;font-size:8px;padding:2px 0">
+      <div style="line-height:1">${dirArrow(sdir,9)}</div>
+      <div>${sh!=null?sh.toFixed(1)+'/'+(sp!=null?Math.round(sp):'–'):'–'}</div>
+    </div>`;
+
+    const pw = wavePower[hi];
+    powerRow += `<div style="${nbg}text-align:center;font-size:8px;color:var(--dim);padding:2px 0">${pw!=null?Math.round(pw):'–'}</div>`;
+
+    const tv = tideVals[hi];
+    tideRow += `<div style="${nbg}text-align:center;font-size:9px;padding:2px 0">${tv!=null?tv.toFixed(1):'–'}</div>`;
+  });
+
+  const gridWidth = labelW + nCols*colW;
+  const rows = [dayRow, hourRow, iconRow, tempRow, rainRow, windRow, pressRow, waveRow, swellRow, powerRow, tideRow];
+
+  const tideFooter = extremes.length ? extremes.map(e => {
+    const d = new Date(e.time + 'Z');
+    const when = d.getUTCDate() + '/' + (d.getUTCMonth()+1) + ' ' + String(d.getUTCHours()).padStart(2,'0') + ':00 UTC';
+    return `<span style="color:${e.type==='High'?'#ff8c6e':'#5de09a'}">${e.type} ${when} (${e.height.toFixed(2)}m)</span>`;
+  }).join(' &nbsp;·&nbsp; ') : 'No tide extremes in range';
+
+  const html = `
+    <div id="fc-grid-wrap" style="overflow:auto;position:relative">
+      <div id="fc-grid" style="display:grid;grid-template-columns:${gridCols};width:${gridWidth}px;position:relative">
+        ${rows.join('')}
+        <div id="fc-cursor" style="position:absolute;top:0;bottom:0;width:0;pointer-events:none;z-index:3">
+          <div id="fc-cursor-tag" style="position:absolute;top:-2px;left:-24px;transform:translateY(-100%);background:#e8a83a;color:#0b1320;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;white-space:nowrap;cursor:ew-resize;pointer-events:auto;touch-action:none">12AM</div>
+          <div style="position:absolute;top:0;bottom:0;left:0;width:2px;background:#e8a83a"></div>
+        </div>
+      </div>
+    </div>
+    <div style="padding:6px 12px;border-top:1px solid var(--bdr);font-size:10px;color:var(--dim);display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+      <span>${moon.emoji} ${moon.name} (${moon.illumination}%)</span>
+      <span>${tideFooter}</span>
+    </div>
+    <div style="padding:0 12px 8px;font-size:9px;color:var(--dim);line-height:1.4">Source: Open-Meteo (ECMWF/GFS weather + wave models), 16-day forecast, 3-hourly columns. Power is an estimated deep-water wave-power approximation (P ≈ 0.5·H²·T), not measured. Accuracy decreases with lead time, especially beyond ~7 days. Times in UTC. Drag the orange tag or click an hour to scrub.</div>`;
+
+  document.getElementById('fc-body').innerHTML = html;
+
+  fcState = { wx, marine, colTimes, colW, labelW, curCol: nowColIdx };
+  fcScrubTo(nowColIdx);
+  setupFcDrag();
+
+  // Scroll so "now" starts near the left edge of the visible timeline
+  const wrap = document.getElementById('fc-grid-wrap');
+  wrap.scrollLeft = Math.max(0, nowColIdx*colW - 20);
+}
+
+function fcScrubTo(ci) {
+  if (!fcState) return;
+  ci = Math.max(0, Math.min(fcState.colTimes.length - 1, ci));
+  fcState.curCol = ci;
+  const { wx, marine, colTimes, colW, labelW } = fcState;
+  const hi = colTimes[ci];
+
+  const cursor = document.getElementById('fc-cursor');
+  if (cursor) cursor.style.left = (labelW + ci*colW + colW/2) + 'px';
+
+  const d = new Date(wx.hourly.time[hi] + 'Z');
+  const dowShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const h = d.getUTCHours();
+  const hourLabel = h===0 ? '12AM' : h<12 ? h+'AM' : h===12 ? '12PM' : (h-12)+'PM';
+  const tag = document.getElementById('fc-cursor-tag');
+  if (tag) tag.textContent = `${dowShort[d.getUTCDay()]} ${d.getUTCDate()} ${hourLabel}`;
+
+  const code = wx.hourly.weather_code ? wx.hourly.weather_code[hi] : null;
+  const isDay = wx.hourly.is_day ? wx.hourly.is_day[hi] : 1;
+  const t = wx.hourly.temperature_2m[hi];
+  const wkt = wx.hourly.wind_speed_10m[hi], gkt = wx.hourly.wind_gusts_10m[hi];
+  const wh = marine.hourly.wave_height[hi];
+
+  const summary = document.getElementById('fc-summary');
+  if (summary) summary.innerHTML =
+    `<span>${weatherIcon(code, isDay)}</span><span style="font-weight:600">${t!=null?Math.round(t)+'°C':'–'}</span>` +
+    `<span style="color:var(--dim)">Wind ${wkt!=null?Math.round(wkt):'–'}/${gkt!=null?Math.round(gkt):'–'}kt</span>` +
+    `<span style="color:var(--dim)">Wave ${wh!=null?wh.toFixed(1)+'m':'–'}</span>`;
+}
+
+function setupFcDrag() {
+  const wrap = document.getElementById('fc-grid-wrap');
+  const tag = document.getElementById('fc-cursor-tag');
+  if (!wrap || !tag || !fcState) return;
+  let dragging = false;
+  const moveTo = (clientX) => {
+    const rect = wrap.getBoundingClientRect();
+    const x = clientX - rect.left + wrap.scrollLeft - fcState.labelW;
+    fcScrubTo(Math.round(x / fcState.colW));
+  };
+  tag.onpointerdown = (e) => { dragging = true; tag.setPointerCapture(e.pointerId); e.stopPropagation(); };
+  tag.onpointermove = (e) => { if (dragging) moveTo(e.clientX); };
+  tag.onpointerup = () => { dragging = false; };
+}
+
+function updateAvailNote(cfg) {
+  const el = document.getElementById('data-avail');
+  const chips = document.getElementById('date-chips');
+  if (!cfg) { el.textContent = ''; chips.style.opacity='1'; return; }
+  if (cfg.isStatic) {
+    chips.style.opacity = '0.3';
+    chips.style.pointerEvents = 'none';
+    el.textContent = '· ' + cfg.note;
+  } else {
+    chips.style.opacity = '1';
+    chips.style.pointerEvents = '';
+    const lag = curLayer==='sst' ? '~1-2 day lag' : curLayer==='chl' ? '~2-3 week lag (weekly composite)' : curLayer==='chlOlci' ? '~2-3 day lag' : '~3-5 day lag';
+    el.textContent = '· ' + cfg.note + ' · ' + lag;
+  }
+}
+
+// ── Date handling ─────────────────────────────────────────────────────────────
+// Build 7 chips: last 7 days with real dates shown, newest first
+// Satellite data has a lag so "today" = 2 days ago, then -1 per chip
+// Builds 7 chips counting back from a real anchor date (the dataset's actual
+// latest available date — see useLatestAvailableDate), stepping by stepDays
+// (1 for daily datasets like SST/altimetry, 7 for chlorophyll's weekly
+// composite). Every chip this produces is therefore a genuinely valid,
+// directly-requestable date — no hidden offset applied later that could make
+// the displayed label disagree with what's actually rendered.
+function buildDateChips(anchorIso, stepDays) {
+  stepDays = stepDays || 1;
+  const wrap = document.getElementById('date-chips');
+  wrap.innerHTML = '';
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const anchor = new Date(anchorIso + 'T00:00:00Z');
+
+  // Build oldest→newest (left to right), i=6 is oldest, i=0 is newest
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(anchor);
+    d.setUTCDate(d.getUTCDate() - i * stepDays);
+    const iso = d.toISOString().slice(0,10);
+    const isLatest = (i === 0);
+    const label = isLatest ? 'Latest' : days[d.getUTCDay()];
+    const dateStr = d.getUTCDate() + ' ' + months[d.getUTCMonth()];
+
+    const btn = document.createElement('button');
+    btn.className = 'date-chip' + (isLatest ? ' on' : '');
+    btn.dataset.date = iso;
+    btn.innerHTML = `<span style="font-size:11px;font-weight:600;display:block;line-height:1.2">${label}</span><span style="font-size:10px;opacity:.7;display:block;line-height:1.2">${dateStr}</span>`;
+    btn.style.padding = '4px 9px';
+    btn.style.lineHeight = '1';
+    btn.onclick = () => selectDateChip(btn, iso);
+    wrap.appendChild(btn);
+  }
+}
+
+function selectDateChip(btn, iso) {
+  curDate = iso;
+  document.querySelectorAll('#date-chips .date-chip').forEach(c => c.classList.remove('on'));
+  btn.classList.add('on');
+  scheduleLoad();
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+function setLayer(type) {
+  curLayer = type;
+  ['sst','chl','chlOlci','alt','depth','off'].forEach(t => document.getElementById('b-'+t)?.classList.remove('on'));
+  document.getElementById('b-'+type)?.classList.add('on');
+  updateLegend();
+  if (type !== 'off') updateAvailNote(LAYERS[type]);
+  else {
+    document.getElementById('data-avail').textContent = '';
+    const chips = document.getElementById('date-chips');
+    chips.style.opacity = '1';
+    chips.style.pointerEvents = '';
+  }
+  // Confirm the real latest-available date for this layer rather than
+  // assuming the existing guessed date still applies to it.
+  useLatestAvailableDate();
+}
+
+function setBase(type) {
+  curBase = type;
+  ['osm','ocean','sat','dark'].forEach(t => document.getElementById('b-'+t)?.classList.remove('on'));
+  document.getElementById('b-'+type)?.classList.add('on');
+  buildBase(type);
+}
+
+function setOpacity(val) {
+  curOpacity = val/100;
+  document.getElementById('oval').textContent = val+'%';
+  if (oceanOverlay) oceanOverlay.setOpacity(curOpacity);
+}
+
+// Debounce — wait 600ms after last event before loading
+function scheduleLoad() {
+  clearTimeout(loadTimer);
+  loadTimer = setTimeout(loadOceanLayer, 600);
+}
+
+// ── Legend ────────────────────────────────────────────────────────────────────
+function updateLegend() {
+  const cfg = LAYERS[curLayer];
+  if (!cfg) {
+    document.getElementById('lgrd').style.background = 'var(--bdrs)';
+    document.getElementById('lname').textContent = 'Off';
+    ['lmin','lmid','lmax'].forEach(id => document.getElementById(id).textContent = '');
+    return;
+  }
+  document.getElementById('lgrd').style.background = cfg.grad;
+  document.getElementById('lname').textContent = cfg.name;
+  document.getElementById('lmin').textContent = cfg.min;
+  document.getElementById('lmid').textContent = cfg.mid;
+  document.getElementById('lmax').textContent = cfg.max;
+}
+
+// ── Click readout ─────────────────────────────────────────────────────────────
+map.on('click', async e => {
+  if (rulerActive) { addRulerPoint(e.latlng); return; }
+  if (addingMark) {
+    addingMark = false;
+    map.getContainer().style.cursor = '';
+    setStatus('');
+    openMarkForm(null, e.latlng);
+    return;
+  }
+  if (forecastModeActive) {
+    openForecastPanel(e.latlng.lat, e.latlng.lng);
+    return; // stays active — click elsewhere to check another point
+  }
+  const {lat, lng} = e.latlng;
+  if (clickMark) map.removeLayer(clickMark);
+  const col = curLayer==='sst'?'#ff8c6e':(curLayer==='chl'||curLayer==='chlOlci')?'#5de09a':curLayer==='depth'?'#6bbfd8':curLayer==='off'?'#fff':'#9bb0ff';
+  clickMark = L.circleMarker([lat,lng],{radius:5,color:'#fff',weight:1.5,fillColor:col,fillOpacity:.9}).addTo(map);
+
+  const ls = Math.abs(lat).toFixed(3)+(lat<0?'°S':'°N');
+  const ms = Math.abs(lng).toFixed(3)+(lng>0?'°E':'°W');
+
+  // Update coordinate display
+  document.getElementById('live-coord').textContent = ls + ' · ' + ms + ' · ' + curDate;
+  document.getElementById('live-note').textContent = '';
+
+  // Populate simulated values for SST / CHL immediately (altimetry is fetched
+  // for real below — a simulated number here could contradict the real color
+  // already on screen, which is exactly the bug this replaced)
+  const sst = simVal(lat,lng,'sst');
+  const chl = simVal(lat,lng,'chl');
+  document.getElementById('live-sst').textContent = sst.val + ' °C';
+  document.getElementById('live-sst').style.color = 'var(--txt)';
+  document.getElementById('live-chl').textContent = chl.val + ' mg/m³';
+  document.getElementById('live-chl').style.color = 'var(--txt)';
+  document.getElementById('live-alt').textContent = '…';
+  document.getElementById('live-alt').style.color = 'var(--acc)';
+
+  // Show note for whichever layer is active
+  if (curLayer !== 'off' && curLayer !== 'depth' && curLayer !== 'alt') {
+    const v = simVal(lat,lng,curLayer);
+    document.getElementById('live-note').innerHTML = v.note.replace(/\n/g,'<br>');
+  }
+
+  // Also update the top readout panel for backwards compat
+  if (curLayer !== 'off' && curLayer !== 'depth' && curLayer !== 'alt') {
+    const cfg = LAYERS[curLayer];
+    const v = simVal(lat,lng,curLayer);
+    document.getElementById('rpt').textContent = cfg.label;
+    document.getElementById('rpc').innerHTML =
+      `<div id="rv">${v.val}<span id="ru"> ${v.unit}</span></div>
+       <div id="rc">${ls} · ${ms} · ${curDate}</div>
+       <div id="rsub">${v.note.replace(/\n/g,'<br>')}</div>`;
+  }
+
+  // Fetch real altimetry async — update when ready (matches the color overlay,
+  // unlike the old simulated value)
+  try {
+    const slaM = await getRealSla(lat, lng);
+    if (slaM === null) {
+      document.getElementById('live-alt').textContent = 'n/a';
+      document.getElementById('live-alt').style.color = 'var(--dim)';
+    } else {
+      const cm = slaM * 100;
+      const cmStr = (cm>=0?'+':'')+cm.toFixed(1);
+      document.getElementById('live-alt').textContent = cmStr + ' cm';
+      document.getElementById('live-alt').style.color = 'var(--txt)';
+      if (curLayer === 'alt') {
+        document.getElementById('live-note').innerHTML = slaNote(cm);
+        document.getElementById('rpt').textContent = LAYERS.alt.label;
+        document.getElementById('rpc').innerHTML =
+          `<div id="rv">${cmStr}<span id="ru"> cm</span></div>
+           <div id="rc">${ls} · ${ms} · ${curDate}</div>
+           <div id="rsub">${slaNote(cm)}</div>`;
+      }
+    }
+  } catch(err) {
+    document.getElementById('live-alt').textContent = 'n/a';
+    document.getElementById('live-alt').style.color = 'var(--dim)';
+  }
+
+  // Fetch real depth async — update when ready
+  document.getElementById('live-depth').textContent = '…';
+  document.getElementById('live-depth').style.color = 'var(--acc)';
+  try {
+    const elev = await getGebcoDepth(lat, lng);
+    if (elev === null || elev > 0) {
+      document.getElementById('live-depth').textContent = '— (land)';
+      document.getElementById('live-depth').style.color = 'var(--dim)';
+    } else {
+      const depth = Math.abs(elev);
+      document.getElementById('live-depth').textContent = depth.toFixed(0) + ' m';
+      document.getElementById('live-depth').style.color = 'var(--txt)';
+      const note = depth<10  ? '🏖 Very shallow — inshore reef, ideal spearfishing' :
+                   depth<30  ? '🐠 Shallow reef (10–30m) — prime spearfishing depth' :
+                   depth<50  ? '🐡 Mid reef (30–50m) — deeper reef, Kingfish, Snapper' :
+                   depth<100 ? '🐟 Deep inshore (50–100m) — Hapuka, deep Snapper' :
+                   depth<200 ? '🟦 Shelf (100–200m) — mixed demersal' :
+                   depth<500 ? '🔵 Shelf edge (200–500m) — tuna corridor, YFT zone' :
+                   depth<1000? '🌊 Upper slope (500–1000m) — deep game fish' :
+                   depth<2000? '🌊 Mid slope (1–2km)' : '🕳 Deep ocean (>2km)';
+      if (curLayer === 'depth') {
+        document.getElementById('rpt').textContent = 'Water depth (bathymetry)';
+        document.getElementById('rpc').innerHTML =
+          `<div id="rv">${depth.toFixed(0)}<span id="ru"> m</span></div>
+           <div id="rc">${ls} · ${ms}</div>
+           <div id="rsub">${note}</div>`;
+      }
+      document.getElementById('live-note').innerHTML = note;
+    }
+  } catch(err) {
+    document.getElementById('live-depth').textContent = 'n/a';
+    document.getElementById('live-depth').style.color = 'var(--dim)';
+  }
+});
+
+// ── GEBCO GetFeatureInfo — real water depth at a lat/lng point ────────────────
+async function getGebcoDepth(lat, lng) {
+  // Use ERDDAP griddap JSON endpoint. etopo360 is a static grid with only two
+  // dimensions (latitude, longitude) — no time/altitude leading index.
+  // This host sends no CORS headers on any endpoint (confirmed), so route
+  // through fetchJsonViaCorsProxy() — the same proxy chain already used for
+  // the altimetry point lookup (getRealSla) and contour data.
+  const latR  = lat.toFixed(4);
+  const lngR  = lng.toFixed(4);
+  const target = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/etopo360.json?altitude[(${latR})][(${lngR})]`;
+  const data = await fetchJsonViaCorsProxy(target);
+
+  // Response: { table: { rows: [[lat, lon, altitude]] } }
+  const rows = data?.table?.rows;
+  if (rows && rows.length > 0) {
+    const elev = rows[0][2]; // altitude column
+    return typeof elev === 'number' ? elev : parseFloat(elev);
+  }
+  return null;
+}
+
+// ── Real altimetry point value ────────────────────────────────────────────────
+// Unlike etopo360/GEBCO, this host has no CORS headers either, but the
+// contour computation already proved fetchJsonViaCorsProxy() works for its
+// griddap JSON (unlike the image/png endpoints, which corsproxy.io's free
+// tier blocks) — reuse that here so the click-readout shows the SAME real
+// data as the color overlay,
+// instead of a simulated value that can contradict what's on screen.
+async function getRealSla(lat, lng) {
+  const latR = lat.toFixed(3), lngR = lng.toFixed(3);
+  const target = `https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.json?sla[(${curDate}T12:00:00Z)][(${latR})][(${lngR})]`;
+  const data = await fetchJsonViaCorsProxy(target);
+  const rows = data?.table?.rows;
+  if (rows && rows.length > 0) {
+    const v = rows[0][3];
+    return typeof v === 'number' ? v : parseFloat(v);
+  }
+  return null;
+}
+
+function slaNote(cm) {
+  return cm>10?'↑ Warm eddy — concentrate bait & gamefish':cm>0?'→ Slight positive — stable conditions':cm>-10?'→ Slight negative — cooler water':'↓ Cold eddy — deepwater upwelling';
+}
+
+// ── Real "latest available" date detection ────────────────────────────────────
+// ERDDAP griddap supports the special time index "(last)", which returns
+// whatever the dataset's actual most recent time step is — no guessing with
+// fixed day-offsets (the chlorophyll ~21-day lag was exactly this kind of
+// guess going stale). Query it directly instead, per layer, since each
+// dataset's real lag differs (SST ~1-2 days, Chl ~2-3 weeks, Alt ~3-5 days).
+async function fetchLatestAvailableDate(layerId, cfg) {
+  const [datasetId, varName] = cfg.layer.split(':');
+  const host = cfg.url.match(/^https:\/\/[^/]+/)[0];
+  const extraDim = (layerId === 'chl' || layerId === 'chlOlci') ? '[(0.0)]' : ''; // both chl datasets have a fixed altitude axis
+  const target = `${host}/erddap/griddap/${datasetId}.json?${varName}[(last)]${extraDim}[(0)][(0)]`;
+  const data = await fetchJsonViaCorsProxy(target);
+  const row = data?.table?.rows?.[0];
+  if (!row || !row[0]) throw new Error('no time data returned');
+  return row[0].slice(0, 10); // ISO date part of the UTC timestamp
+}
+
+// Sync curDate to the real latest date for the active layer, updates the date
+// chips to reflect it, and reloads. Falls back to the existing guessed
+// default (todayStr()-based) and alerts via setStatus() if the check fails —
+// the map still works, it just may not be showing the true latest date.
+async function useLatestAvailableDate() {
+  const cfg = LAYERS[curLayer];
+  if (!cfg || cfg.isStatic) { scheduleLoad(); return; }
+
+  const myReqId = ++oceanLayerReqId;
+  try {
+    const latestIso = await fetchLatestAvailableDate(curLayer, cfg);
+    if (myReqId !== oceanLayerReqId) return; // superseded by another layer/date change
+    curDate = latestIso;
+    // Rebuild the chips directly from the confirmed-real anchor date, stepping
+    // weekly for chl (its composites only land on specific days) and daily
+    // otherwise — every chip is then a genuinely valid, directly-requestable
+    // date, so clicking one can never disagree with what actually loads.
+    buildDateChips(latestIso, cfg.snapToWeekly ? 7 : 1);
+    setStatus('');
+  } catch (err) {
+    if (myReqId !== oceanLayerReqId) return;
+    setStatus('Could not confirm the latest available ' + cfg.name + ' date (offline or ERDDAP unreachable) — showing an estimated recent date instead.');
+  }
+  loadOceanLayer();
+}
+
+// Estimated point value from a lat/lng formula — NOT a real read of the ERDDAP
+// imagery shown on the map. Depth (getGebcoDepth) and altimetry (getRealSla)
+// are the only real live lookups.
+function simVal(lat,lng,layer) {
+  const lf = Math.abs(lat)/50;
+  if (layer==='sst') {
+    const v = +(29-lf*17+Math.sin(lng*.25+lat*.18)*1.4).toFixed(1);
+    const n = v>26?'🔴 Warm — prime YFT & Marlin water':v>21?'🟡 Good offshore temp range':v>16?'🔵 Cool — Albacore & SBT territory':'🔵 Cold — Bluefin & deepwater species';
+    return {val:v,unit:'°C',note:n};
+  } else if (layer==='chl' || layer==='chlOlci') {
+    const v = Math.max(0.01,+(0.05+lf*1.3+Math.cos(lat*.35)*.25)).toFixed(2);
+    const vis = Math.round(4.6/Math.pow(parseFloat(v),0.44));
+    const n = v<0.1?'💙 Oligotrophic — clear blue, low bait':v<0.3?'💚 Moderate — good game fish zone':v<1?'🟡 High productivity — bait likely':'🟤 Very high — turbid, coastal';
+    return {val:v,unit:'mg/m³',note:`Est. visibility ~${vis}m (Secchi)\n${n}`};
+  }
+  // depth and altimetry are handled separately via real lookups — should not reach here
+  return {val:'—', unit:'', note:''};
+}
+
+// ── Region jump ───────────────────────────────────────────────────────────────
+function jumpTo(key) {
+  const r = REGIONS[key];
+  map.flyTo([r.lat,r.lng],r.zoom,{duration:1.2});
+  document.getElementById('rname').textContent = r.name;
+  document.getElementById('s-sst').textContent  = r.sst;
+  document.getElementById('s-sstd').textContent = r.sstd;
+  document.getElementById('s-chl').textContent  = r.chl;
+  document.getElementById('s-chld').textContent = r.chld;
+  document.getElementById('s-alt').textContent  = r.alt;
+  document.getElementById('s-altd').textContent = r.altd;
+  document.getElementById('s-depth').textContent  = r.depth;
+  document.getElementById('s-depthd').textContent = r.depthd;
+}
+
+function flyMark(lat,lng,name,depth,sp) {
+  map.flyTo([lat,lng],11,{duration:1});
+  L.circleMarker([lat,lng],{radius:8,color:'#ff8c6e',weight:2,fillColor:'#ff8c6e',fillOpacity:.2})
+    .addTo(markGroup).bindTooltip(`<b>${name}</b><br>Depth: ${depth}<br>${sp}`,{direction:'top'}).openTooltip();
+  // On mobile the marks list lives in the drawer — close it so the map/tooltip is visible
+  document.getElementById('sb').classList.remove('open');
+}
+
+// ── Fishing marks (add/edit/group, persisted to localStorage) ─────────────────
+// Real, published Fish Aggregating Device (FAD) locations in Australian
+// waters — sourced from official state fisheries programs (QLD DAF, WA
+// DPIRD/Recfishwest, Victoria Fisheries/VRFish, NSW DPI). SA/NT/TAS are
+// omitted — no verifiable published coordinates were found for those states
+// (SA's live data is app-only; NT's official page was inaccessible; Tasmania
+// has no state FAD program). The NSW list is republished 2014-15 DPI data
+// (the current DPI page embeds a Google Map rather than a coordinate table),
+// so treat NSW positions as approximate anchors — the program repositions
+// buoys slightly for wind/swell/current, same as the other states likely do.
+const DEFAULT_MARKS = [
+  // Queensland — DAF FAD Program
+  {id:'qld-fad-1',  lat:-27.9878, lng:153.5291, name:'FAD 1 — Gold Coast 24s',        depth:'46m',  species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-2',  lat:-27.9298, lng:153.7533, name:'FAD 2 — Gold Coast 50s',        depth:'85m',  species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-13', lat:-27.7395, lng:153.7386, name:'FAD 13 — Gold Coast 50s',       depth:'86m',  species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-4',  lat:-27.2838, lng:153.6279, name:'FAD 4 — Stradbroke offshore',   depth:'83m',  species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-16', lat:-27.1850, lng:153.6149, name:'FAD 16 — Moreton offshore',     depth:'108m', species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-17', lat:-26.9942, lng:153.5598, name:'FAD 17 — Cape Moreton offshore',depth:'108m', species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-18', lat:-26.7460, lng:153.4532, name:'FAD 18 — Wide Caloundra',       depth:'60m',  species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-19', lat:-26.5754, lng:153.4536, name:'FAD 19 — Mooloolaba 18nm',      depth:'49m',  species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-7',  lat:-26.5985, lng:153.3281, name:'FAD 7 — Mooloolaba 10nm',       depth:'55m',  species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-20', lat:-26.3783, lng:153.2383, name:'FAD 20 — Noosa',                depth:'52m',  species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-9',  lat:-26.2593, lng:153.3292, name:'FAD 9 — Noosa',                 depth:'55m',  species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-21', lat:-25.6878, lng:153.3769, name:'FAD 21 — K\'gari (Fraser Is.)', depth:'51m',  species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-sfad-1a',lat:-27.9257, lng:153.8961, name:'SFAD 1A — Gold Coast shelf (subsurface)', depth:'256m', species:'Pelagics — Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-f1', lat:-24.8127, lng:153.1025, name:'FAD F1 — Rooney Point, K\'gari',depth:'34m',  species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-b1', lat:-24.6546, lng:152.5487, name:'FAD B1 — Bundaberg offshore',   depth:'25m',  species:'Pelagics — Mahi Mahi, Tuna, Marlin', group:'QLD FADs'},
+  {id:'qld-fad-g1', lat:-12.9827, lng:141.2835, name:'FAD G1 — Weipa',                depth:'30m',  species:'Pelagics — Spanish Mackerel, GT',    group:'QLD FADs'},
+  {id:'qld-fad-g5', lat:-17.3623, lng:140.7315, name:'FAD G5 — Karumba',              depth:'7m',   species:'Pelagics — Spanish Mackerel, GT',    group:'QLD FADs'},
+  {id:'qld-fad-g6', lat:-17.2486, lng:140.6214, name:'FAD G6 — Karumba',              depth:'11m',  species:'Pelagics — Spanish Mackerel, GT',    group:'QLD FADs'},
+  // Western Australia — DPIRD / Recfishwest FAD Program
+  {id:'wa-broome-40',  lat:-17.9066, lng:121.8593, name:'Broome 40',        depth:'—', species:'Pelagics — Spanish Mackerel, Sailfish', group:'WA FADs'},
+  {id:'wa-broome-39',  lat:-17.8288, lng:121.8593, name:'Broome 39',        depth:'—', species:'Pelagics — Spanish Mackerel, Sailfish', group:'WA FADs'},
+  {id:'wa-pt-samson',  lat:-20.2841, lng:117.1312, name:'Point Samson 42',  depth:'—', species:'Pelagics — Spanish Mackerel, Tuna',     group:'WA FADs'},
+  {id:'wa-dampier-44', lat:-20.5008, lng:116.3999, name:'Dampier 44',       depth:'—', species:'Pelagics — Spanish Mackerel, Tuna',     group:'WA FADs'},
+  {id:'wa-exmouth-34', lat:-21.5975, lng:114.1125, name:'Exmouth 34',       depth:'—', species:'Pelagics — Marlin, Sailfish, Tuna',     group:'WA FADs'},
+  {id:'wa-pt-hedland-1',lat:-19.6821,lng:118.7988, name:'Port Hedland 1',   depth:'—', species:'Pelagics — Spanish Mackerel, GT',       group:'WA FADs'},
+  {id:'wa-albany-24',  lat:-35.3899, lng:118.0928, name:'Albany 24',        depth:'—', species:'Pelagics — Samson Fish, Tuna (seasonal)',group:'WA FADs'},
+  // Victoria — Fisheries Victoria / VRFish FAD Program
+  {id:'vic-torquay-1', lat:-38.3305, lng:144.3750, name:'Torquay FAD 1',    depth:'25m', species:'Pelagics — Tuna, Sharks', group:'VIC FADs'},
+  {id:'vic-torquay-2', lat:-38.3324, lng:144.3767, name:'Torquay FAD 2',    depth:'25m', species:'Pelagics — Tuna, Sharks', group:'VIC FADs'},
+  {id:'vic-torquay-3', lat:-38.3364, lng:144.3720, name:'Torquay FAD 3',    depth:'25m', species:'Pelagics — Tuna, Sharks', group:'VIC FADs'},
+  {id:'vic-torquay-4', lat:-38.3344, lng:144.3704, name:'Torquay FAD 4',    depth:'25m', species:'Pelagics — Tuna, Sharks', group:'VIC FADs'},
+  {id:'vic-lorne',     lat:-38.5377, lng:144.0323, name:'Lorne FAD',        depth:'—',   species:'Pelagics — Tuna, Sharks', group:'VIC FADs'},
+  {id:'vic-aireys',    lat:-38.4857, lng:144.1621, name:'Aireys Inlet FAD', depth:'—',   species:'Pelagics — Tuna, Sharks', group:'VIC FADs'},
+  // New South Wales — NSW DPI FAD Program (approximate — see note above)
+  {id:'nsw-tweed',      lat:-28.1622, lng:153.6833, name:'Tweed Heads FAD',   depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-byron',      lat:-28.6121, lng:153.7126, name:'Byron Bay FAD',     depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-ballina',    lat:-28.9072, lng:153.6865, name:'Ballina FAD',       depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-yamba',      lat:-29.5672, lng:153.4691, name:'Yamba FAD',         depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-coffs',      lat:-30.2476, lng:153.3601, name:'Coffs Harbour FAD', depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-pt-macquarie',lat:-31.4095,lng:153.0788, name:'Port Macquarie FAD',depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-forster',    lat:-32.2202, lng:152.6780, name:'Forster FAD',       depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-pt-stephens',lat:-32.7828, lng:152.4117, name:'Port Stephens FAD', depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-newcastle',  lat:-32.9222, lng:151.9989, name:'Newcastle FAD',     depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-sydney-n',   lat:-33.5926, lng:151.5768, name:'Sydney North FAD',  depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-sydney-harbour',lat:-33.7837,lng:151.3783,name:'Sydney Harbour FAD',depth:'—',species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-sydney-e',   lat:-33.9886, lng:151.3492, name:'Sydney East FAD',   depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-wollongong', lat:-34.4554, lng:151.0718, name:'Wollongong FAD',    depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-jervis-bay', lat:-34.9625, lng:150.9750, name:'Jervis Bay FAD',    depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-batemans-bay',lat:-35.8333,lng:150.3772, name:'Batemans Bay FAD',  depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+  {id:'nsw-eden',       lat:-36.9800, lng:150.2458, name:'Eden (Far South Coast) FAD', depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+];
+const MARKS_STORAGE_KEY = 'oceanfishy_marks';
+
+function loadMarks() {
+  try {
+    const raw = localStorage.getItem(MARKS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (err) { /* corrupt/unavailable storage — fall through to defaults */ }
+  return DEFAULT_MARKS.map(m => ({...m}));
+}
+function saveMarksToStorage() {
+  try { localStorage.setItem(MARKS_STORAGE_KEY, JSON.stringify(marks)); }
+  catch (err) { setStatus('Could not save marks — browser storage unavailable or full.'); }
+}
+
+let marks = loadMarks();
+let addingMark = false;
+let editingMarkId = null;
+const marksLayerGroup = L.layerGroup().addTo(map);
+
+// Depth-derived color, matching the original convention: shallow inshore
+// marks blue, deeper offshore marks orange.
+function markColor(m) {
+  const d = parseFloat(m.depth);
+  return (!isNaN(d) && d <= 100) ? '#6b8eff' : '#ff8c6e';
+}
+
+function renderMarkers() {
+  marksLayerGroup.clearLayers();
+  marks.forEach(m => {
+    const col = markColor(m);
+    L.circleMarker([m.lat, m.lng], {
+      radius: col === '#6b8eff' ? 4 : 6,
+      color: col, weight: 1.5, fillColor: col, fillOpacity: .2,
+    }).addTo(marksLayerGroup)
+      .bindTooltip(`<b>${m.name}</b><br>Depth: ${m.depth}<br>${m.species}`, {direction:'top'});
+  });
+}
+
+function renderGroupFilter() {
+  const sel = document.getElementById('mark-group-filter');
+  const groups = [...new Set(marks.map(m => m.group || 'Ungrouped'))].sort();
+  const current = sel.value || 'All';
+  sel.innerHTML = '<option value="All">All groups</option>' + groups.map(g => `<option value="${g}">${g}</option>`).join('');
+  sel.value = groups.includes(current) ? current : 'All';
+
+  document.getElementById('mark-groups-list').innerHTML = groups.map(g => `<option value="${g}">`).join('');
+}
+
+function renderMarksList() {
+  const filter = document.getElementById('mark-group-filter').value || 'All';
+  const wrap = document.getElementById('marks-list');
+  const byGroup = {};
+  marks.forEach(m => {
+    const g = m.group || 'Ungrouped';
+    if (filter !== 'All' && g !== filter) return;
+    (byGroup[g] = byGroup[g] || []).push(m);
+  });
+  const groupNames = Object.keys(byGroup).sort();
+  if (!groupNames.length) {
+    wrap.innerHTML = '<div style="font-size:11px;color:var(--dim);padding:6px 0">No marks yet — click "＋ Add" to place one.</div>';
+    return;
+  }
+  wrap.innerHTML = groupNames.map(g => `
+    <details open>
+      <summary style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;cursor:pointer;padding:4px 0">${g} (${byGroup[g].length})</summary>
+      ${byGroup[g].map(m => `
+        <div class="mr">
+          <div style="display:flex;align-items:center;flex:1;cursor:pointer;min-width:0" onclick="markRowClick('${m.id}')">
+            <span class="mi"></span><span class="mn" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.name}</span>
+          </div>
+          ${marksEditMode ? `<span class="mark-edit" onclick="openEditMark('${m.id}')" title="Edit this mark">✏️</span>` : ''}
+        </div>
+      `).join('')}
+    </details>
+  `).join('');
+}
+
+function flyToMark(id) {
+  const m = marks.find(x => x.id === id);
+  if (m) flyMark(m.lat, m.lng, m.name, m.depth, m.species);
+}
+
+// Normally clicking a mark just pans the map there. With the top "✎ Edit"
+// toggle armed, clicking any mark instead opens it for editing — a single
+// mode switch rather than requiring the small per-row pencil icon every time.
+let marksEditMode = false;
+function markRowClick(id) {
+  if (marksEditMode) openEditMark(id); else flyToMark(id);
+}
+
+function toggleMarksEditMode() {
+  marksEditMode = !marksEditMode;
+  document.getElementById('b-marks-edit').classList.toggle('on', marksEditMode);
+  setStatus(marksEditMode ? 'Edit mode: click a mark in the list to edit it' : '');
+  renderMarksList();
+}
+
+function startAddMark() {
+  addingMark = true;
+  editingMarkId = null;
+  map.getContainer().style.cursor = 'crosshair';
+  setStatus('Click on the map to place the new mark');
+}
+
+function openMarkForm(markId, coordsForNew) {
+  editingMarkId = markId || null;
+  const isEdit = !!markId;
+  document.getElementById('mark-form-title').textContent = isEdit ? 'Edit mark' : 'Add mark';
+  document.getElementById('mf-delete').style.display = isEdit ? 'block' : 'none';
+
+  let lat, lng;
+  if (isEdit) {
+    const m = marks.find(x => x.id === markId);
+    document.getElementById('mf-name').value = m.name;
+    document.getElementById('mf-depth').value = m.depth;
+    document.getElementById('mf-species').value = m.species;
+    document.getElementById('mf-group').value = m.group || '';
+    lat = m.lat; lng = m.lng;
+  } else {
+    document.getElementById('mf-name').value = '';
+    document.getElementById('mf-depth').value = '';
+    document.getElementById('mf-species').value = '';
+    document.getElementById('mf-group').value = '';
+    lat = coordsForNew.lat; lng = coordsForNew.lng;
+  }
+  document.getElementById('mf-lat').value = lat.toFixed(4);
+  document.getElementById('mf-lng').value = lng.toFixed(4);
+  renderGroupFilter();
+  document.getElementById('mark-form').style.display = 'block';
+}
+
+function openEditMark(id) { openMarkForm(id, null); }
+
+function closeMarkForm() {
+  document.getElementById('mark-form').style.display = 'none';
+  editingMarkId = null;
+}
+
+// Accepts decimal degrees ("-34.556" or "34.556 S"), DMS ("34°33'21\"S"),
+// or degrees-decimal-minutes ("34 33.35 S") — anglers copy coordinates from
+// chartplotters, marine apps, and GPS units in whatever format each one
+// defaults to, so a strict single-format number input is unnecessarily
+// rigid here. Returns NaN if the string can't be parsed at all.
+function parseFlexibleCoord(raw) {
+  if (raw == null) return NaN;
+  let s = String(raw).trim();
+  if (!s) return NaN;
+  s = s.replace(/[′’]/g, "'").replace(/[″“”]/g, '"').replace(/°/g, ' ');
+  const hemiMatch = s.match(/[NSEWnsew]/);
+  const hemi = hemiMatch ? hemiMatch[0].toUpperCase() : null;
+  s = s.replace(/[NSEWnsew]/g, ' ');
+  const negative = /-/.test(s);
+  s = s.replace(/-/g, ' ');
+  const parts = s.split(/['"\s,]+/).filter(Boolean).map(Number);
+  if (!parts.length || parts.some(Number.isNaN)) return NaN;
+
+  let deg;
+  if (parts.length >= 3) deg = parts[0] + parts[1] / 60 + parts[2] / 3600;       // D M S
+  else if (parts.length === 2) deg = parts[0] + parts[1] / 60;                   // D M.M
+  else deg = parts[0];                                                          // decimal degrees
+
+  if (hemi === 'S' || hemi === 'W') deg = -Math.abs(deg);
+  else if (hemi === 'N' || hemi === 'E') deg = Math.abs(deg);
+  else if (negative) deg = -Math.abs(deg);
+  return deg;
+}
+
+function saveMarkForm() {
+  const name = document.getElementById('mf-name').value.trim();
+  if (!name) { setStatus('Please enter a name for the mark.'); return; }
+  const lat = parseFlexibleCoord(document.getElementById('mf-lat').value);
+  const lng = parseFlexibleCoord(document.getElementById('mf-lng').value);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    setStatus('Please enter a valid latitude (-90 to 90) and longitude (-180 to 180) — decimal, DMS, or D M formats are all accepted.');
+    return;
+  }
+  const depth   = document.getElementById('mf-depth').value.trim()   || '—';
+  const species = document.getElementById('mf-species').value.trim() || '—';
+  const group   = document.getElementById('mf-group').value.trim()   || 'Ungrouped';
+
+  if (editingMarkId) {
+    Object.assign(marks.find(x => x.id === editingMarkId), {name, lat, lng, depth, species, group});
+  } else {
+    marks.push({
+      id: 'mark-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+      lat, lng, name, depth, species, group,
+    });
+  }
+  saveMarksToStorage();
+  renderMarkers();
+  renderGroupFilter();
+  renderMarksList();
+  closeMarkForm();
+  setStatus('');
+}
+
+function deleteMarkForm() {
+  if (!editingMarkId) return;
+  if (!confirm('Delete this mark?')) return;
+  marks = marks.filter(x => x.id !== editingMarkId);
+  saveMarksToStorage();
+  renderMarkers();
+  renderGroupFilter();
+  renderMarksList();
+  closeMarkForm();
+}
+
+// ── Export / import marks (marks only live in this browser's localStorage —
+// this is the way to back them up or move them to another browser/device) ────
+function exportMarks() {
+  const blob = new Blob([JSON.stringify(marks, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'oceanfishy-marks-' + todayStr() + '.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function importMarks(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let incoming;
+    try {
+      incoming = JSON.parse(reader.result);
+      if (!Array.isArray(incoming)) throw new Error('not an array');
+    } catch (err) {
+      setStatus('Import failed — that file isn\'t a valid marks export.');
+      return;
+    }
+
+    // Merge by id: an imported mark with an id matching an existing one
+    // updates it in place; anything else is added fresh (with a new id if
+    // missing/blank, so imports never silently collide with unrelated marks).
+    let updated = 0, added = 0, skipped = 0;
+    for (const raw of incoming) {
+      if (!raw || typeof raw.name !== 'string' || typeof raw.lat !== 'number' || typeof raw.lng !== 'number') {
+        skipped++;
+        continue;
+      }
+      const mark = {
+        id: raw.id || ('mark-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6)),
+        lat: raw.lat, lng: raw.lng,
+        name: raw.name,
+        depth: typeof raw.depth === 'string' ? raw.depth : '—',
+        species: typeof raw.species === 'string' ? raw.species : '—',
+        group: typeof raw.group === 'string' && raw.group ? raw.group : 'Ungrouped',
+      };
+      const existingIdx = marks.findIndex(m => m.id === mark.id);
+      if (existingIdx >= 0) { marks[existingIdx] = mark; updated++; }
+      else { marks.push(mark); added++; }
+    }
+
+    saveMarksToStorage();
+    renderMarkers();
+    renderGroupFilter();
+    renderMarksList();
+    setStatus(`Imported: ${added} added, ${updated} updated${skipped ? ', ' + skipped + ' skipped (invalid)' : ''}.`);
+  };
+  reader.onerror = () => setStatus('Could not read that file.');
+  reader.readAsText(file);
+}
+
+// ── Map events ────────────────────────────────────────────────────────────────
+// The WMS tile layer re-fetches its own tiles on pan/zoom automatically (that's
+// the point of using L.tileLayer.wms instead of a single stretched image) — no
+// need to recreate the whole layer here. Contours, though, are computed from a
+// single griddap fetch over the current visible bounds, so they still need a
+// refresh when the view changes.
+// Contours and currents are independent real-data overlays (not tied to
+// curLayer), so both need refreshing on pan/zoom regardless of which color
+// layer is active. Share one debounce timer — using loadTimer for both would
+// let one cancel the other's pending refresh.
+function scheduleOverlayRefresh() {
+  if (!showContours && !showCurrents && !showWind && !showSwell) return;
+  clearTimeout(overlayRefreshTimer);
+  overlayRefreshTimer = setTimeout(() => {
+    if (showContours) updateContours(curDate, map.getBounds());
+    if (showCurrents) updateCurrents(curDate, map.getBounds());
+    if (showWind) updateWind(map.getBounds());
+    if (showSwell) updateSwell(map.getBounds());
+  }, 600);
+}
+map.on('moveend', function() {
+  // Don't refresh during flyTo animation — wait until movement actually stops
+  if (!map._animatingZoom) scheduleOverlayRefresh();
+});
+map.on('zoomend', scheduleOverlayRefresh);
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function showSpinner(v,txt) {
+  document.getElementById('spinner').classList.toggle('show',v);
+  if (txt) document.getElementById('spin-txt').textContent = txt;
+}
+function setStatus(msg) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.classList.toggle('show', !!msg);
+}
+
+// Mobile drawer: sidebar is off-canvas below 640px, toggled via #sb-toggle
+function toggleSidebar() {
+  const open = document.getElementById('sb').classList.toggle('open');
+  document.getElementById('map').classList.toggle('sb-open', open);
+  document.getElementById('sb-toggle').innerHTML = open ? '✕ Close' : 'ℹ Info';
+}
+
+// ── Ruler / distance measurement ─────────────────────────────────────────────
+let rulerActive = false;
+let rulerPoints = [];
+let rulerLine   = null;
+let rulerLabel  = null;
+const rulerMarkers = [];
+
+function toggleContours() {
+  showContours = !showContours;
+  document.getElementById('b-contours').classList.toggle('on', showContours);
+  if (showContours) {
+    updateContours(curDate, map.getBounds());
+  } else {
+    contourGroup.clearLayers();
+  }
+}
+
+function toggleRuler() {
+  rulerActive = !rulerActive;
+  document.getElementById('b-ruler').classList.toggle('on', rulerActive);
+  map.getContainer().style.cursor = rulerActive ? 'crosshair' : '';
+  if (rulerActive) {
+    map.doubleClickZoom.disable();
+    setStatus('Ruler: click points on the map to measure distance');
+  } else {
+    map.doubleClickZoom.enable();
+    setStatus('');
+  }
+}
+
+function metersToDisplay(m) {
+  const km = m / 1000;
+  const nm = m / 1852; // nautical miles — the unit boaters actually use
+  return m < 1000 ? `${m.toFixed(0)} m` : `${km.toFixed(2)} km · ${nm.toFixed(2)} nm`;
+}
+
+function addRulerPoint(latlng) {
+  rulerPoints.push(latlng);
+  rulerMarkers.push(
+    L.circleMarker(latlng, {radius:4, color:'#fff', weight:1.5, fillColor:'#ffd23f', fillOpacity:1, interactive:false}).addTo(map)
+  );
+
+  if (rulerLine) map.removeLayer(rulerLine);
+  rulerLine = L.polyline(rulerPoints, {color:'#ffd23f', weight:2.5, dashArray:'6,6', interactive:false}).addTo(map);
+
+  let total = 0;
+  for (let i = 1; i < rulerPoints.length; i++) total += rulerPoints[i-1].distanceTo(rulerPoints[i]);
+
+  if (rulerLabel) map.removeLayer(rulerLabel);
+  rulerLabel = L.tooltip({permanent:true, direction:'top', className:'ruler-label', offset:[0,-8]})
+    .setLatLng(latlng)
+    .setContent(rulerPoints.length > 1 ? 'Total: ' + metersToDisplay(total) : 'Click again to measure')
+    .addTo(map);
+
+  document.getElementById('b-ruler-clear').style.display = rulerPoints.length ? 'inline-flex' : 'none';
+}
+
+function clearRuler() {
+  rulerPoints = [];
+  if (rulerLine)  { map.removeLayer(rulerLine);  rulerLine  = null; }
+  if (rulerLabel) { map.removeLayer(rulerLabel); rulerLabel = null; }
+  rulerMarkers.forEach(m => map.removeLayer(m));
+  rulerMarkers.length = 0;
+  document.getElementById('b-ruler-clear').style.display = 'none';
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildBase('osm');
+buildDateChips(todayStr(), 1); // placeholder until useLatestAvailableDate() confirms the real dates
+updateLegend();
+jumpTo('shellcove');
+updateAvailNote(LAYERS['sst']);
+useLatestAvailableDate();
+renderMarkers();
+renderGroupFilter();
+renderMarksList();
+</script>
+</body>
+</html>
