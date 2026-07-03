@@ -50,6 +50,20 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 .mark-edit{font-size:13px;color:var(--mut);cursor:pointer;padding:0 6px;border-radius:4px;flex-shrink:0;line-height:18px}
 .mark-edit:hover{color:#fff;background:var(--surf2)}
 #b-marks-edit.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+
+/* Current-speed legend — bigger by default; shrinks automatically while the
+   Forecast panel is open, since that docks across the bottom and leaves much
+   less vertical room above it for the legend to sit in without colliding. */
+#current-legend{padding:9px 12px;transition:padding .15s ease}
+#current-legend .cl-title{font-size:10px;margin-bottom:5px}
+#current-legend .cl-bar{height:10px;width:170px;transition:height .15s ease,width .15s ease}
+#current-legend .cl-labels{font-size:10px;margin-top:3px}
+#current-legend .cl-note{font-size:9px;margin-top:5px;max-width:170px;transition:max-width .15s ease}
+#current-legend.compact{padding:4px 6px}
+#current-legend.compact .cl-title{font-size:7px;margin-bottom:2px}
+#current-legend.compact .cl-bar{height:5px;width:90px}
+#current-legend.compact .cl-labels{font-size:7px;margin-top:1px}
+#current-legend.compact .cl-note{font-size:7px;margin-top:3px;max-width:100px}
 .bdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .bdot.sst{background:var(--sst)}.bdot.chl{background:var(--chl)}.bdot.alt{background:var(--alt)}.bdot.depth{background:#3a7ca5}
 
@@ -232,13 +246,13 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
        Anchored top-left below the zoom control — bottom-left collided with the
        Forecast panel (bottom-docked, full-width) on desktop and with the mobile
        sidebar drawer (also bottom-docked) on small screens. -->
-  <div id="current-legend" style="display:none;position:absolute;top:120px;left:10px;z-index:460;background:rgba(18,28,46,.9);border:1px solid var(--bdrs);border-radius:6px;padding:4px 6px;backdrop-filter:blur(6px)">
-    <div style="font-size:7px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Current (kt)</div>
-    <div style="height:5px;width:90px;border-radius:2px;background:linear-gradient(to right,rgb(36,60,150),rgb(45,120,196),rgb(74,177,206),rgb(112,204,171),rgb(171,221,164),rgb(230,245,152),rgb(254,224,139),rgb(253,174,97),rgb(213,62,79))"></div>
-    <div style="display:flex;justify-content:space-between;font-size:7px;color:var(--dim);margin-top:1px">
+  <div id="current-legend" style="display:none;position:absolute;top:120px;left:10px;z-index:460;background:rgba(18,28,46,.9);border:1px solid var(--bdrs);border-radius:6px;backdrop-filter:blur(6px)">
+    <div class="cl-title" style="color:var(--dim);text-transform:uppercase;letter-spacing:.05em">Current (kt)</div>
+    <div class="cl-bar" style="border-radius:3px;background:linear-gradient(to right,rgb(36,60,150),rgb(45,120,196),rgb(74,177,206),rgb(112,204,171),rgb(171,221,164),rgb(230,245,152),rgb(254,224,139),rgb(253,174,97),rgb(213,62,79))"></div>
+    <div class="cl-labels" style="display:flex;justify-content:space-between;color:var(--dim)">
       <span>0</span><span>1</span><span>2</span><span>3</span><span>4+</span>
     </div>
-    <div style="font-size:7px;color:var(--dim);margin-top:3px;max-width:100px;line-height:1.3">Live only — no forecast data source exists for currents</div>
+    <div class="cl-note" style="color:var(--dim);line-height:1.3">Live only — no forecast data source exists for currents</div>
   </div>
 
   <!-- Mobile-only drawer toggle -->
@@ -1118,6 +1132,7 @@ function toggleCurrents() {
   document.getElementById('b-currents').classList.toggle('on', showCurrents);
   document.getElementById('current-legend').style.display = showCurrents ? 'block' : 'none';
   if (showCurrents) {
+    updateCurrentLegendSize();
     updateCurrents(curDate, map.getBounds()).then(startCurrentAnimation);
   } else {
     stopCurrentAnimation();
@@ -1333,6 +1348,7 @@ function toggleForecastMode() {
   if (!forecastModeActive) {
     document.getElementById('forecast-panel').style.display = 'none';
     resetForecastScrubToLive();
+    updateCurrentLegendSize();
   }
 }
 
@@ -1346,6 +1362,7 @@ function closeForecastPanel() {
   map.getContainer().style.cursor = '';
   setStatus('');
   resetForecastScrubToLive();
+  updateCurrentLegendSize();
 }
 
 // Simple synodic-month approximation, accurate to within ~a day — plenty for
@@ -1415,9 +1432,20 @@ function windColor(kt) {
 // time cursor, replacing the old vertical SVG line-chart layout. ──────────────
 let fcState = null; // {wx, marine, colTimes, colW, labelW, curCol}
 
+// The current-speed legend defaults to a larger, easier-to-read size, but
+// shrinks while the Forecast panel is open — that panel docks across the
+// whole bottom of the map, leaving much less vertical room above it, and a
+// large legend at its normal top-left spot could start crowding that
+// remaining space.
+function updateCurrentLegendSize() {
+  const forecastOpen = document.getElementById('forecast-panel').style.display !== 'none';
+  document.getElementById('current-legend').classList.toggle('compact', forecastOpen);
+}
+
 async function openForecastPanel(lat, lng) {
   const panel = document.getElementById('forecast-panel');
   panel.style.display = 'flex';
+  updateCurrentLegendSize();
   document.getElementById('fc-coords').textContent =
     Math.abs(lat).toFixed(3) + (lat<0?'°S':'°N') + ' · ' + Math.abs(lng).toFixed(3) + (lng>0?'°E':'°W');
   document.getElementById('fc-body').innerHTML = '<div style="font-size:12px;color:var(--dim);padding:20px 0;text-align:center">Loading forecast…</div>';
@@ -1560,8 +1588,8 @@ function renderForecastPanel(wx, marine) {
     <div id="fc-grid-wrap" style="overflow:auto;position:relative">
       <div id="fc-grid" style="display:grid;grid-template-columns:${gridCols};width:${gridWidth}px;position:relative">
         ${rows.join('')}
-        <div id="fc-cursor" style="position:absolute;top:0;bottom:0;width:0;pointer-events:none;z-index:3">
-          <div id="fc-cursor-tag" style="position:absolute;top:-2px;left:-24px;transform:translateY(-100%);background:#e8a83a;color:#0b1320;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;white-space:nowrap;cursor:ew-resize;pointer-events:auto;touch-action:none">12AM</div>
+        <div id="fc-cursor" style="position:absolute;top:0;bottom:0;width:0;pointer-events:none;z-index:5">
+          <div id="fc-cursor-tag" style="position:absolute;top:2px;left:-24px;background:#e8a83a;color:#0b1320;font-size:10px;font-weight:700;padding:4px 8px;border-radius:4px;white-space:nowrap;cursor:ew-resize;pointer-events:auto;touch-action:none;box-shadow:0 1px 4px rgba(0,0,0,.4)">12AM</div>
           <div style="position:absolute;top:0;bottom:0;left:0;width:2px;background:#e8a83a"></div>
         </div>
       </div>
