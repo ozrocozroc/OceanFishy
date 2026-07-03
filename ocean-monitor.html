@@ -865,8 +865,8 @@ let currentFieldData = null; // {latSet, lonSet, uGrid, vGrid} for bilinear samp
 let currentParticles = [];
 let currentAnimHandle = null;
 let currentCanvas = null, currentCtx = null;
-const PARTICLE_COUNT = 900;
-const PARTICLE_MAX_AGE = 180; // frames before forced respawn — longer, calmer paths before recycling
+const PARTICLE_COUNT = 500; // fewer particles — 900 overlapping onto the same smooth streamlines was compounding into a solid painted-on texture rather than distinct moving trails
+const PARTICLE_MAX_AGE = 120; // frames before forced respawn — recycles positions often enough to keep the pattern from feeling permanently "baked in"
 
 function ensureCurrentCanvas() {
   if (currentCanvas) return;
@@ -941,11 +941,16 @@ function initCurrentParticles() {
   });
 }
 
-// Tuned so a slow real current (~0.5kt visual floor) still moves visibly
-// without turning into a chaotic blur. Went through 90px/knot/sec+2kt, then
-// 40+1.2, then 18+0.8, and it still read as too fast each time — cut again.
-const CURRENT_VISUAL_PX_PER_KNOT_PER_SEC = 10;
-const CURRENT_MIN_VISUAL_KNOTS = 0.5; // floor so slow real currents (~0.1-0.3 m/s here) still visibly move
+// Went through 90px/knot/sec+2kt, 40+1.2, 18+0.8, then 10+0.5 chasing "too
+// fast" feedback — but 10+0.5 made particles move well under a pixel per
+// frame, which combined with the long trail fade meant hundreds of
+// particles kept re-painting almost the exact same spot every frame instead
+// of visibly translating — that's what read as a smudge rather than a
+// flowing trail. Speed isn't actually the fix for smudging (that's the fade
+// retention below) — nudged back up just enough that particles clear their
+// own trail before repainting it.
+const CURRENT_VISUAL_PX_PER_KNOT_PER_SEC = 16;
+const CURRENT_MIN_VISUAL_KNOTS = 0.9; // floor so slow real currents (~0.1-0.3 m/s here) still visibly move
 
 // Windy-style continuous speed→color ramp (deep blue = slow, through
 // teal/green/yellow to red = fast) instead of 3 flat bands — a smooth
@@ -984,11 +989,14 @@ function stepAndDrawParticles() {
   // 1-(1-0.08)^n → 1), which was silently painting the entire canvas solid
   // and hiding the base map underneath once the z-index fix made this
   // canvas actually render on top of the map instead of behind it.
-  // Higher retention (was 0.92) = slower fade = trails linger longer
-  // before disappearing, matching the slower drift speed instead of
-  // vanishing quickly right behind a slow-moving particle.
+  // 0.97 retention (~1.3s to fade to 10%) sounded reasonable in isolation,
+  // but with 900 particles continuously retracing the same smooth
+  // streamlines (the field doesn't change on this timescale), the
+  // aggregate look never actually cleared — it accumulated into a solid
+  // "painted on" texture instead of visibly-moving trails. Shorter
+  // retention clears each stroke before the next lap repaints over it.
   currentCtx.globalCompositeOperation = 'destination-in';
-  currentCtx.fillStyle = 'rgba(0,0,0,0.97)';
+  currentCtx.fillStyle = 'rgba(0,0,0,0.90)';
   currentCtx.fillRect(0, 0, currentCanvas.width, currentCanvas.height);
   currentCtx.globalCompositeOperation = 'source-over';
 
