@@ -865,7 +865,14 @@ function ensureCurrentCanvas() {
   currentCanvas.style.width = '100%';
   currentCanvas.style.height = '100%';
   currentCanvas.style.pointerEvents = 'none';
-  currentCanvas.style.zIndex = 250; // above the WMS ocean-layer tiles, below UI panels
+  // Must beat 400, not 200 — Leaflet's tile/overlay/marker layers all live
+  // inside .leaflet-map-pane, and it's THAT wrapper's own z-index (400, from
+  // the generic .leaflet-pane rule) that competes with ours as sibling boxes
+  // in the container's stacking context. A canvas z-index of 250 (beating
+  // only the inner tile-pane's 200) was still fully hidden behind the whole
+  // map — confirmed via getImageData showing real drawn pixels that were
+  // nonetheless invisible on screen, in both preview and production.
+  currentCanvas.style.zIndex = 450; // above all Leaflet panes, below UI panels (900+)
   map.getContainer().appendChild(currentCanvas);
   currentCtx = currentCanvas.getContext('2d');
   resizeCurrentCanvas();
