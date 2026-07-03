@@ -2244,6 +2244,18 @@ map.on('moveend', function() {
 });
 map.on('zoomend', scheduleOverlayRefresh);
 
+// The current field is fetched for a specific lat/lng bounding box, but
+// particles are re-projected from CURRENT pixel positions every frame via
+// containerPointToLatLng — so the moment you pan or zoom, the still-loading
+// old field's geographic box no longer lines up with the new view. Rather
+// than rendering a confusing floating rectangle of "data" wherever the old
+// box happens to now overlap the new viewport (real symptom: an oddly-placed
+// dense patch of streaks sitting in open water, unrelated to the actual
+// current visible area) until the 600ms-debounced refetch completes, clear
+// the field immediately so particles just stop drawing until fresh data for
+// the new view arrives — no visible currents beats visibly WRONG ones.
+map.on('movestart zoomstart', () => { if (showCurrents) currentFieldData = null; });
+
 // ── UI helpers ────────────────────────────────────────────────────────────────
 function showSpinner(v,txt) {
   document.getElementById('spinner').classList.toggle('show',v);
