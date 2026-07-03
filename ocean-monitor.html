@@ -929,20 +929,28 @@ function initCurrentParticles() {
   });
 }
 
-// Tuned so a slow real current (~2kt visual floor) moves a clearly visible
-// ~3px per frame at 60fps — the first attempt (18 px/knot/sec, ~0.6px/frame)
-// was sub-pixel and invisible despite the canvas genuinely drawing every
-// frame (confirmed via getImageData — this was a tuning bug, not a rendering
-// pipeline bug).
-const CURRENT_VISUAL_PX_PER_KNOT_PER_SEC = 90;
-const CURRENT_MIN_VISUAL_KNOTS = 2; // floor so slow real currents (~0.1-0.3 m/s here) still visibly move
+// Tuned so a slow real current (~1.2kt visual floor) still moves visibly
+// without turning into a chaotic blur — the earlier 90px/knot/sec + 2kt
+// floor (~3px/frame) looked like everything was spinning far faster than
+// any real current, since dozens of particles were all visibly zipping
+// around at once. Roughly half the speed reads as actual drifting current
+// rather than a fast spin.
+const CURRENT_VISUAL_PX_PER_KNOT_PER_SEC = 40;
+const CURRENT_MIN_VISUAL_KNOTS = 1.2; // floor so slow real currents (~0.1-0.3 m/s here) still visibly move
 
 function stepAndDrawParticles() {
   if (!showCurrents || !currentCtx) return;
-  // Fade the previous frame instead of clearing — creates the flowing-trail
-  // look. A higher alpha here = shorter, snappier trails.
-  currentCtx.fillStyle = 'rgba(6,14,26,0.08)';
+  // Fade the previous frame's trails toward transparent using
+  // destination-in (multiplies existing alpha down), NOT another
+  // translucent layer painted OVER everything with source-over — that
+  // composites toward fully OPAQUE over enough frames (alpha compounds:
+  // 1-(1-0.08)^n → 1), which was silently painting the entire canvas solid
+  // and hiding the base map underneath once the z-index fix made this
+  // canvas actually render on top of the map instead of behind it.
+  currentCtx.globalCompositeOperation = 'destination-in';
+  currentCtx.fillStyle = 'rgba(0,0,0,0.92)';
   currentCtx.fillRect(0, 0, currentCanvas.width, currentCanvas.height);
+  currentCtx.globalCompositeOperation = 'source-over';
 
   for (const p of currentParticles) {
     const latlng = map.containerPointToLatLng([p.x, p.y]);
