@@ -65,6 +65,10 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 #current-legend.compact .cl-labels{font-size:7px;margin-top:1px}
 #current-legend.compact .cl-note{font-size:6px}
 #current-legend.compact .cl-note{font-size:7px;margin-top:3px;max-width:100px}
+
+.icon-pick{width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;background:var(--surf2);border:1px solid var(--bdrs);border-radius:6px;cursor:pointer}
+.icon-pick:hover{border-color:var(--acc)}
+.icon-pick.on{background:rgba(42,159,214,.2);border-color:var(--acc)}
 .bdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .bdot.sst{background:var(--sst)}.bdot.chl{background:var(--chl)}.bdot.alt{background:var(--alt)}.bdot.depth{background:#3a7ca5}
 
@@ -344,6 +348,9 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
     <input class="mf-input" id="mf-species" placeholder="Species / notes" maxlength="80">
     <input class="mf-input" id="mf-group" placeholder="Group (e.g. Canyons)" list="mark-groups-list" maxlength="30">
     <datalist id="mark-groups-list"></datalist>
+    <div style="font-size:9px;color:var(--dim);margin-bottom:4px">Icon</div>
+    <input type="hidden" id="mf-icon" value="📍">
+    <div id="mf-icon-picker" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px"></div>
     <div style="display:flex;gap:6px;margin-bottom:4px">
       <input class="mf-input" id="mf-lat" type="text" placeholder="Latitude" style="margin-bottom:0">
       <input class="mf-input" id="mf-lng" type="text" placeholder="Longitude" style="margin-bottom:0">
@@ -2127,15 +2134,29 @@ function markColor(m) {
   return (!isNaN(d) && d <= 100) ? '#6b8eff' : '#ff8c6e';
 }
 
+const MARK_ICONS = ['📍','⚓','🎣','🦞','🐟','🌊','🚢','🦈','🦑'];
+
+// Marks saved before the icon picker existed have no m.icon at all — infer
+// something reasonable from the group name (all the seeded default marks
+// are FADs) rather than showing every old mark as a bare generic pin.
+function inferMarkIcon(m) {
+  if (m.icon) return m.icon;
+  return (m.group || '').toLowerCase().includes('fad') ? '⚓' : '📍';
+}
+
 function renderMarkers() {
   marksLayerGroup.clearLayers();
   marks.forEach(m => {
     const col = markColor(m);
-    L.circleMarker([m.lat, m.lng], {
-      radius: col === '#6b8eff' ? 4 : 6,
-      color: col, weight: 1.5, fillColor: col, fillOpacity: .2,
+    const icon = inferMarkIcon(m);
+    L.marker([m.lat, m.lng], {
+      icon: L.divIcon({
+        className: 'mark-pin',
+        html: `<div style="width:22px;height:22px;border-radius:50%;background:${col}2e;border:1.5px solid ${col};display:flex;align-items:center;justify-content:center;font-size:12px;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.4)">${icon}</div>`,
+        iconSize: [22, 22], iconAnchor: [11, 11],
+      }),
     }).addTo(marksLayerGroup)
-      .bindTooltip(`<b>${m.name}</b><br>Depth: ${m.depth}<br>${m.species}`, {direction:'top'});
+      .bindTooltip(`<b>${icon} ${m.name}</b><br>Depth: ${m.depth}<br>${m.species}`, {direction:'top'});
   });
 }
 
@@ -2205,13 +2226,24 @@ function startAddMark() {
   setStatus('Click on the map to place the new mark');
 }
 
+function renderIconPicker(selected) {
+  document.getElementById('mf-icon-picker').innerHTML = MARK_ICONS.map(ic =>
+    `<div class="icon-pick${ic === selected ? ' on' : ''}" data-icon="${ic}" onclick="selectMarkIcon('${ic}')">${ic}</div>`
+  ).join('');
+}
+
+function selectMarkIcon(icon) {
+  document.getElementById('mf-icon').value = icon;
+  document.querySelectorAll('#mf-icon-picker .icon-pick').forEach(el => el.classList.toggle('on', el.dataset.icon === icon));
+}
+
 function openMarkForm(markId, coordsForNew) {
   editingMarkId = markId || null;
   const isEdit = !!markId;
   document.getElementById('mark-form-title').textContent = isEdit ? 'Edit mark' : 'Add mark';
   document.getElementById('mf-delete').style.display = isEdit ? 'block' : 'none';
 
-  let lat, lng;
+  let lat, lng, icon;
   if (isEdit) {
     const m = marks.find(x => x.id === markId);
     document.getElementById('mf-name').value = m.name;
@@ -2219,15 +2251,19 @@ function openMarkForm(markId, coordsForNew) {
     document.getElementById('mf-species').value = m.species;
     document.getElementById('mf-group').value = m.group || '';
     lat = m.lat; lng = m.lng;
+    icon = inferMarkIcon(m);
   } else {
     document.getElementById('mf-name').value = '';
     document.getElementById('mf-depth').value = '';
     document.getElementById('mf-species').value = '';
     document.getElementById('mf-group').value = '';
     lat = coordsForNew.lat; lng = coordsForNew.lng;
+    icon = '📍';
   }
   document.getElementById('mf-lat').value = lat.toFixed(4);
   document.getElementById('mf-lng').value = lng.toFixed(4);
+  document.getElementById('mf-icon').value = icon;
+  renderIconPicker(icon);
   renderGroupFilter();
   document.getElementById('mark-form').style.display = 'block';
 }
@@ -2280,13 +2316,14 @@ function saveMarkForm() {
   const depth   = document.getElementById('mf-depth').value.trim()   || '—';
   const species = document.getElementById('mf-species').value.trim() || '—';
   const group   = document.getElementById('mf-group').value.trim()   || 'Ungrouped';
+  const icon    = document.getElementById('mf-icon').value || '📍';
 
   if (editingMarkId) {
-    Object.assign(marks.find(x => x.id === editingMarkId), {name, lat, lng, depth, species, group});
+    Object.assign(marks.find(x => x.id === editingMarkId), {name, lat, lng, depth, species, group, icon});
   } else {
     marks.push({
       id: 'mark-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
-      lat, lng, name, depth, species, group,
+      lat, lng, name, depth, species, group, icon,
     });
   }
   saveMarksToStorage();
@@ -2351,6 +2388,7 @@ function importMarks(file) {
         depth: typeof raw.depth === 'string' ? raw.depth : '—',
         species: typeof raw.species === 'string' ? raw.species : '—',
         group: typeof raw.group === 'string' && raw.group ? raw.group : 'Ungrouped',
+        icon: typeof raw.icon === 'string' && raw.icon ? raw.icon : undefined,
       };
       const existingIdx = marks.findIndex(m => m.id === mark.id);
       if (existingIdx >= 0) { marks[existingIdx] = mark; updated++; }
