@@ -1664,9 +1664,17 @@ function setupFcDrag() {
     const x = clientX - rect.left + wrap.scrollLeft - fcState.labelW;
     fcScrubTo(Math.round(x / fcState.colW));
   };
-  tag.onpointerdown = (e) => { dragging = true; tag.setPointerCapture(e.pointerId); e.stopPropagation(); };
-  tag.onpointermove = (e) => { if (dragging) moveTo(e.clientX); };
-  tag.onpointerup = () => { dragging = false; };
+  // preventDefault (not just stopPropagation) matters here: for mouse input
+  // the browser dispatches a legacy "mousedown" right after "pointerdown" as
+  // a compatibility event, and Leaflet's map-drag/pan listener is bound to
+  // that mousedown, not to pointerdown — stopping propagation on the
+  // pointerdown alone doesn't stop the separate mousedown from bubbling up
+  // and starting a map pan underneath at the same time. preventDefault on a
+  // cancelable pointerdown suppresses those compatibility mouse events
+  // entirely, per the Pointer Events spec.
+  tag.onpointerdown = (e) => { dragging = true; tag.setPointerCapture(e.pointerId); e.preventDefault(); e.stopPropagation(); };
+  tag.onpointermove = (e) => { if (dragging) { moveTo(e.clientX); e.preventDefault(); e.stopPropagation(); } };
+  tag.onpointerup = (e) => { dragging = false; e.preventDefault(); e.stopPropagation(); };
 }
 
 function updateAvailNote(cfg) {
