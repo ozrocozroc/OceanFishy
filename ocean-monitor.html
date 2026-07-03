@@ -2134,14 +2134,15 @@ function markColor(m) {
   return (!isNaN(d) && d <= 100) ? '#6b8eff' : '#ff8c6e';
 }
 
-const MARK_ICONS = ['📍','⚓','🎣','🦞','🐟','🌊','🚢','🦈','🦑'];
+const MARK_ICONS = ['📍','🟡','⚓','🎣','🦞','🐟','🌊','🚢','🦈','🦑','🛟'];
 
 // Marks saved before the icon picker existed have no m.icon at all — infer
 // something reasonable from the group name (all the seeded default marks
 // are FADs) rather than showing every old mark as a bare generic pin.
+// 🟡 stands in for a yellow FAD buoy — Unicode has no dedicated buoy glyph.
 function inferMarkIcon(m) {
   if (m.icon) return m.icon;
-  return (m.group || '').toLowerCase().includes('fad') ? '⚓' : '📍';
+  return (m.group || '').toLowerCase().includes('fad') ? '🟡' : '📍';
 }
 
 function renderMarkers() {
