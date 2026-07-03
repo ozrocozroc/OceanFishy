@@ -54,15 +54,16 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 /* Current-speed legend — bigger by default; shrinks automatically while the
    Forecast panel is open, since that docks across the bottom and leaves much
    less vertical room above it for the legend to sit in without colliding. */
-#current-legend{padding:9px 12px;transition:padding .15s ease}
-#current-legend .cl-title{font-size:10px;margin-bottom:5px}
-#current-legend .cl-bar{height:10px;width:170px;transition:height .15s ease,width .15s ease}
-#current-legend .cl-labels{font-size:10px;margin-top:3px}
-#current-legend .cl-note{font-size:9px;margin-top:5px;max-width:170px;transition:max-width .15s ease}
+#current-legend{padding:6px 9px;transition:padding .15s ease}
+#current-legend .cl-title{font-size:9px;margin-bottom:3px}
+#current-legend .cl-bar{height:7px;width:130px;transition:height .15s ease,width .15s ease}
+#current-legend .cl-labels{font-size:9px;margin-top:2px}
+#current-legend .cl-note{font-size:8px;margin-top:3px;white-space:nowrap;transition:font-size .15s ease}
 #current-legend.compact{padding:4px 6px}
 #current-legend.compact .cl-title{font-size:7px;margin-bottom:2px}
 #current-legend.compact .cl-bar{height:5px;width:90px}
 #current-legend.compact .cl-labels{font-size:7px;margin-top:1px}
+#current-legend.compact .cl-note{font-size:6px}
 #current-legend.compact .cl-note{font-size:7px;margin-top:3px;max-width:100px}
 .bdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .bdot.sst{background:var(--sst)}.bdot.chl{background:var(--chl)}.bdot.alt{background:var(--alt)}.bdot.depth{background:#3a7ca5}
@@ -252,7 +253,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
     <div class="cl-labels" style="display:flex;justify-content:space-between;color:var(--dim)">
       <span>0</span><span>1</span><span>2</span><span>3</span><span>4+</span>
     </div>
-    <div class="cl-note" style="color:var(--dim);line-height:1.3">Live only — no forecast data source exists for currents</div>
+    <div class="cl-note" style="color:var(--dim)">Live only — no forecast for currents</div>
   </div>
 
   <!-- Mobile-only drawer toggle -->
