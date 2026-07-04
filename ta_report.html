@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Technical Analysis Report — Top 25 Momentum</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: #12151f;
+    --panel-border: #232838;
+    --text: #e6e9ef;
+    --text-dim: #8890a4;
+    --green: #22c55e;
+    --red: #ef4444;
+    --amber: #eab308;
+    --accent: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 28px;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .subtitle { color: var(--text-dim); font-size: 13px; margin-bottom: 8px; }
+  .disclaimer {
+    background: #1c1710; border: 1px solid #3a2f14; color: #e0b84b;
+    font-size: 12.5px; padding: 10px 14px; border-radius: 8px; margin-bottom: 22px;
+    max-width: 900px;
+  }
+  .controls { display: flex; gap: 20px; align-items: center; margin-bottom: 20px; }
+  select {
+    background: var(--panel); border: 1px solid var(--panel-border); color: var(--text);
+    padding: 8px 12px; border-radius: 8px; font-size: 14px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 12px;
+    padding: 18px;
+  }
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+  .ticker-block .ticker { font-size: 18px; font-weight: 700; }
+  .ticker-block .name { font-size: 12.5px; color: var(--text-dim); }
+  .price { font-size: 16px; font-weight: 600; margin-top: 2px; }
+  .confidence-badge {
+    padding: 5px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 700; white-space: nowrap;
+  }
+  .conf-strong-buy { background: #163524; color: var(--green); }
+  .conf-buy { background: #163524; color: #4ade80; }
+  .conf-neutral { background: #262a1c; color: var(--amber); }
+  .conf-sell, .conf-strong-sell { background: #3a1414; color: var(--red); }
+
+  .section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); margin: 14px 0 6px; }
+  .trend-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .trend-pill {
+    font-size: 12px; padding: 4px 9px; border-radius: 6px; background: #171b28; border: 1px solid var(--panel-border);
+  }
+  .trend-up { color: var(--green); }
+  .trend-down { color: var(--red); }
+  .trend-mixed { color: var(--amber); }
+
+  .kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; font-size: 13px; }
+  .kv-grid .k { color: var(--text-dim); }
+  .kv-grid .v { text-align: right; }
+
+  .indicator-line { font-size: 13px; margin-bottom: 4px; line-height: 1.4; }
+  .indicator-line .label { color: var(--text-dim); }
+
+  .pattern-text { font-size: 13px; font-style: italic; color: #c9cede; }
+
+  .plan-box {
+    margin-top: 10px; padding: 10px 12px; background: #0e111a; border: 1px solid var(--panel-border);
+    border-radius: 8px; font-size: 13px;
+  }
+  .plan-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+  .plan-row:last-child { margin-bottom: 0; }
+  .rr-good { color: var(--green); font-weight: 600; }
+  .rr-poor { color: var(--red); font-weight: 600; }
+
+  .score-note { font-size: 11px; color: var(--text-dim); margin-top: 8px; }
+  .sector-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Technical Analysis Report Card — Top 25 S&P 500 Momentum</h1>
+<div class="subtitle" id="asOfLabel"></div>
+<div class="disclaimer">
+  Fetched fresh at generation time — S&P 500 constituent list from Wikipedia and 2 years of daily OHLCV from Yahoo Finance
+  (yfinance), no local cache. Prices are typically delayed ~15 minutes, standard for free market data — not a live tick feed.
+  Not financial advice. Chart-pattern labels and the confidence score are rules-based heuristics — they approximate common
+  technical read but are not guarantees of future price action.
+</div>
+
+<div class="controls">
+  <select id="sortSelect">
+    <option value="confidence">Sort by confidence score</option>
+    <option value="rr">Sort by risk:reward</option>
+    <option value="ticker">Sort alphabetically</option>
+  </select>
+</div>
+
+<div class="grid" id="cardGrid"></div>
+
+<script>
+const DATA = [{"price": 1745.0, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 1610.45, "sma100": 1151.39, "sma200": 703.36, "goldenCross": false, "deathCross": false, "rsi": 46.8, "rsiLabel": "Neutral", "macd": 127.39, "macdSignal": 165.88, "macdLabel": "Bearish and weakening", "percentB": 0.27, "bbLabel": "Within bands (neutral)", "volumeTrend": "Falling \u2014 move lacks strong volume confirmation", "volRatioToday": 1.44, "support": 1559.32, "resistance": 1831.5, "fibLevels": {"0.236": 1839.96, "0.382": 1533.71, "0.5": 1286.19, "0.618": 1038.67, "0.786": 686.27}, "fibDirection": "pullback zones below the recent high", "pattern": "Higher highs & higher lows \u2014 uptrend continuation", "entry": 1745.0, "entryNote": "At/near current price", "stopLoss": 1489.25, "target": 1831.5, "riskReward": 0.34, "confidence": "Buy", "confidenceScore": 5, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)"], "ticker": "SNDK", "name": "Sandisk", "sector": "Information Technology"}, {"price": 975.56, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 852.09, "sma100": 630.4, "sma200": 444.22, "goldenCross": false, "deathCross": false, "rsi": 48.5, "rsiLabel": "Neutral", "macd": 64.48, "macdSignal": 85.32, "macdLabel": "Bearish and weakening", "percentB": 0.33, "bbLabel": "Within bands (neutral)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 1.04, "support": 864.01, "resistance": 1079.57, "fibLevels": {"0.236": 994.49, "0.382": 858.96, "0.5": 749.43, "0.618": 639.89, "0.786": 483.94}, "fibDirection": "pullback zones below the recent high", "pattern": "Higher highs & higher lows \u2014 uptrend continuation", "entry": 975.56, "entryNote": "At/near current price", "stopLoss": 832.01, "target": 1079.57, "riskReward": 0.72, "confidence": "Strong Buy", "confidenceScore": 6, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 volume confirming move"], "ticker": "MU", "name": "Micron Technology", "sector": "Information Technology"}, {"price": 120.35, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 113.38, "sma100": 81.52, "sma200": 60.33, "goldenCross": false, "deathCross": false, "rsi": 49.1, "rsiLabel": "Neutral", "macd": 5.54, "macdSignal": 6.59, "macdLabel": "Bearish and weakening", "percentB": 0.44, "bbLabel": "Within bands (neutral)", "volumeTrend": "Stable \u2014 in line with recent average", "volRatioToday": 0.95, "support": 108.17, "resistance": 123.52, "fibLevels": {"0.236": 116.39, "0.382": 101.2, "0.5": 88.92, "0.618": 76.64, "0.786": 59.16}, "fibDirection": "pullback zones below the recent high", "pattern": "No classic pattern detected \u2014 trending price action", "entry": 120.35, "entryNote": "At/near current price", "stopLoss": 95.81, "target": 123.52, "riskReward": 0.13, "confidence": "Buy", "confidenceScore": 5, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)"], "ticker": "INTC", "name": "Intel", "sector": "Information Technology"}, {"price": 394.32, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 323.09, "sma100": 238.89, "sma200": 186.14, "goldenCross": false, "deathCross": false, "rsi": 52.6, "rsiLabel": "Neutral", "macd": 24.46, "macdSignal": 31.34, "macdLabel": "Bearish and weakening", "percentB": 0.3, "bbLabel": "Within bands (neutral)", "volumeTrend": "Stable \u2014 in line with recent average", "volRatioToday": 0.76, "support": 369.83, "resistance": 434.06, "fibLevels": {"0.236": 382.13, "0.382": 330.26, "0.5": 288.34, "0.618": 246.43, "0.786": 186.75}, "fibDirection": "pullback zones below the recent high", "pattern": "No classic pattern detected \u2014 trending price action", "entry": 394.32, "entryNote": "At/near current price", "stopLoss": 360.61, "target": 434.06, "riskReward": 1.18, "confidence": "Buy", "confidenceScore": 5, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)"], "ticker": "DELL", "name": "Dell Technologies", "sector": "Information Technology"}, {"price": 539.0, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 529.55, "sma100": 413.11, "sma200": 290.41, "goldenCross": false, "deathCross": false, "rsi": 44.5, "rsiLabel": "Neutral", "macd": 25.29, "macdSignal": 41.34, "macdLabel": "Bearish and weakening", "percentB": 0.27, "bbLabel": "Within bands (neutral)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 0.84, "support": 490.09, "resistance": 593.96, "fibLevels": {"0.236": 610.75, "0.382": 526.93, "0.5": 459.19, "0.618": 391.44, "0.786": 295.0}, "fibDirection": "pullback zones below the recent high", "pattern": "Higher highs & higher lows \u2014 uptrend continuation", "entry": 539.0, "entryNote": "At/near current price", "stopLoss": 469.25, "target": 593.96, "riskReward": 0.79, "confidence": "Strong Buy", "confidenceScore": 6, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 volume confirming move"], "ticker": "WDC", "name": "Western Digital", "sector": "Information Technology"}, {"price": 820.16, "dailyTrend": "Mixed", "weeklyTrend": "Mixed", "monthlyTrend": "Uptrend", "sma50": 839.69, "sma100": 633.19, "sma200": 455.89, "goldenCross": false, "deathCross": false, "rsi": 41.6, "rsiLabel": "Neutral", "macd": 25.15, "macdSignal": 50.82, "macdLabel": "Bearish and weakening", "percentB": 0.13, "bbLabel": "Near lower band (oversold stretch)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 1.31, "support": 815.41, "resistance": 833.42, "fibLevels": {"0.236": 900.08, "0.382": 780.58, "0.5": 683.99, "0.618": 587.4, "0.786": 449.88}, "fibDirection": "pullback zones below the recent high", "pattern": "Higher highs & higher lows \u2014 uptrend continuation", "entry": 820.16, "entryNote": "At/near current price", "stopLoss": 787.37, "target": 833.42, "riskReward": 0.4, "confidence": "Buy", "confidenceScore": 4, "confidenceReasons": ["+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 volume confirming move"], "ticker": "STX", "name": "Seagate Technology", "sector": "Information Technology"}, {"price": 245.29, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 223.63, "sma100": 160.26, "sma200": 122.57, "goldenCross": false, "deathCross": false, "rsi": 46.5, "rsiLabel": "Neutral", "macd": 13.09, "macdSignal": 20.74, "macdLabel": "Bearish and weakening", "percentB": 0.02, "bbLabel": "Near lower band (oversold stretch)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 0.6, "support": 160.01, "resistance": 310.58, "fibLevels": {"0.236": 259.14, "0.382": 223.7, "0.5": 195.06, "0.618": 166.42, "0.786": 125.64}, "fibDirection": "pullback zones below the recent high", "pattern": "No classic pattern detected \u2014 trending price action", "entry": 245.29, "entryNote": "At/near current price", "stopLoss": 236.88, "target": 310.58, "riskReward": 7.76, "confidence": "Strong Buy", "confidenceScore": 7, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 volume confirming move", "+1 R:R >= 2 (7.76)"], "ticker": "MRVL", "name": "Marvell Technology", "sector": "Information Technology"}, {"price": 79.76, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 52.65, "sma100": 51.76, "sma200": 41.12, "goldenCross": false, "deathCross": false, "rsi": 80.7, "rsiLabel": "Overbought", "macd": 6.31, "macdSignal": 4.19, "macdLabel": "Bullish and strengthening", "percentB": 1.04, "bbLabel": "Near upper band (overbought stretch)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 1.53, "support": 49.83, "resistance": 79.76, "fibLevels": {"0.236": 67.9, "0.382": 60.56, "0.5": 54.63, "0.618": 48.69, "0.786": 40.25}, "fibDirection": "pullback zones below the recent high", "pattern": "No classic pattern detected \u2014 trending price action", "entry": 60.56, "entryNote": "Wait for pullback toward 38.2% Fib / recent swing low \u2014 RSI is stretched", "stopLoss": 45.04, "target": 79.76, "riskReward": 1.24, "confidence": "Buy", "confidenceScore": 5, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "-1 RSI extremely overbought", "+1 MACD bullish", "+1 volume confirming move"], "ticker": "MRNA", "name": "Moderna", "sector": "Health Care"}, {"price": 517.82, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 460.38, "sma100": 337.84, "sma200": 278.19, "goldenCross": false, "deathCross": false, "rsi": 52.3, "rsiLabel": "Neutral", "macd": 23.23, "macdSignal": 26.71, "macdLabel": "Bearish and weakening", "percentB": 0.51, "bbLabel": "Within bands (neutral)", "volumeTrend": "Falling \u2014 move lacks strong volume confirmation", "volRatioToday": 0.88, "support": 452.4, "resistance": 542.52, "fibLevels": {"0.236": 488.88, "0.382": 431.95, "0.5": 385.93, "0.618": 339.91, "0.786": 274.4}, "fibDirection": "pullback zones below the recent high", "pattern": "Possible cup & handle (bullish continuation) \u2014 heuristic read", "entry": 517.82, "entryNote": "At/near current price", "stopLoss": 441.31, "target": 542.52, "riskReward": 0.32, "confidence": "Buy", "confidenceScore": 5, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)"], "ticker": "AMD", "name": "Advanced Micro Devices", "sector": "Information Technology"}, {"price": 603.04, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 489.97, "sma100": 425.5, "sma200": 338.75, "goldenCross": false, "deathCross": false, "rsi": 54.0, "rsiLabel": "Neutral", "macd": 51.49, "macdSignal": 50.79, "macdLabel": "Bullish", "percentB": 0.56, "bbLabel": "Within bands (neutral)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 1.15, "support": 406.4, "resistance": 723.0, "fibLevels": {"0.236": 612.87, "0.382": 544.74, "0.5": 489.68, "0.618": 434.61, "0.786": 356.21}, "fibDirection": "pullback zones below the recent high", "pattern": "Possible inverse head & shoulders (bullish reversal) \u2014 heuristic read", "entry": 603.04, "entryNote": "At/near current price", "stopLoss": 458.92, "target": 723.0, "riskReward": 0.83, "confidence": "Strong Buy", "confidenceScore": 7, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 MACD bullish", "+1 volume confirming move"], "ticker": "AMAT", "name": "Applied Materials", "sector": "Information Technology"}, {"price": 136.86, "dailyTrend": "Uptrend", "weeklyTrend": "Mixed", "monthlyTrend": "Uptrend", "sma50": 134.88, "sma100": 101.22, "sma200": 81.5, "goldenCross": false, "deathCross": false, "rsi": 44.7, "rsiLabel": "Neutral", "macd": 4.21, "macdSignal": 6.21, "macdLabel": "Bearish and weakening", "percentB": -0.02, "bbLabel": "Near lower band (oversold stretch)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 0.67, "support": 126.29, "resistance": 145.07, "fibLevels": {"0.236": 137.71, "0.382": 122.63, "0.5": 110.45, "0.618": 98.27, "0.786": 80.92}, "fibDirection": "pullback zones below the recent high", "pattern": "Higher highs & higher lows \u2014 uptrend continuation", "entry": 136.86, "entryNote": "At/near current price", "stopLoss": 105.62, "target": 145.07, "riskReward": 0.26, "confidence": "Buy", "confidenceScore": 5, "confidenceReasons": ["+1 Daily trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 volume confirming move"], "ticker": "FLEX", "name": "Flex Ltd.", "sector": "Information Technology"}, {"price": 196.79, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 188.43, "sma100": 165.93, "sma200": 126.89, "goldenCross": false, "deathCross": false, "rsi": 48.7, "rsiLabel": "Neutral", "macd": 11.62, "macdSignal": 9.59, "macdLabel": "Bullish", "percentB": 0.48, "bbLabel": "Within bands (neutral)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 1.18, "support": 176.7, "resistance": 200.76, "fibLevels": {"0.236": 215.39, "0.382": 190.46, "0.5": 170.32, "0.618": 150.17, "0.786": 121.48}, "fibDirection": "pullback zones below the recent high", "pattern": "Lower highs & lower lows \u2014 downtrend continuation", "entry": 196.79, "entryNote": "At/near current price", "stopLoss": 161.67, "target": 200.76, "riskReward": 0.11, "confidence": "Strong Buy", "confidenceScore": 7, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 MACD bullish", "+1 volume confirming move"], "ticker": "GLW", "name": "Corning Inc.", "sector": "Information Technology"}, {"price": 234.91, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 192.86, "sma100": 171.54, "sma200": 146.13, "goldenCross": false, "deathCross": false, "rsi": 84.4, "rsiLabel": "Overbought", "macd": 9.77, "macdSignal": 8.18, "macdLabel": "Bullish and strengthening", "percentB": 1.05, "bbLabel": "Near upper band (overbought stretch)", "volumeTrend": "Stable \u2014 in line with recent average", "volRatioToday": 1.01, "support": 192.58, "resistance": 234.91, "fibLevels": {"0.236": 203.98, "0.382": 184.85, "0.5": 169.39, "0.618": 153.93, "0.786": 131.91}, "fibDirection": "pullback zones below the recent high", "pattern": "No classic pattern detected \u2014 trending price action", "entry": 192.08, "entryNote": "Wait for pullback toward 38.2% Fib / recent swing low \u2014 RSI is stretched", "stopLoss": 174.51, "target": 234.91, "riskReward": 2.44, "confidence": "Buy", "confidenceScore": 5, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "-1 RSI extremely overbought", "+1 MACD bullish", "+1 R:R >= 2 (2.44)"], "ticker": "DVA", "name": "DaVita", "sector": "Health Care"}, {"price": 351.41, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 320.92, "sma100": 276.95, "sma200": 222.49, "goldenCross": false, "deathCross": false, "rsi": 48.4, "rsiLabel": "Neutral", "macd": 21.1, "macdSignal": 24.02, "macdLabel": "Bearish and weakening", "percentB": 0.37, "bbLabel": "Within bands (neutral)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 1.3, "support": 303.07, "resistance": 433.33, "fibLevels": {"0.236": 371.39, "0.382": 333.06, "0.5": 302.09, "0.618": 271.12, "0.786": 227.02}, "fibDirection": "pullback zones below the recent high", "pattern": "Higher highs & higher lows \u2014 uptrend continuation", "entry": 351.41, "entryNote": "At/near current price", "stopLoss": 293.76, "target": 433.33, "riskReward": 1.42, "confidence": "Strong Buy", "confidenceScore": 6, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 volume confirming move"], "ticker": "LRCX", "name": "Lam Research", "sector": "Information Technology"}, {"price": 728.32, "dailyTrend": "Mixed", "weeklyTrend": "Mixed", "monthlyTrend": "Uptrend", "sma50": 898.08, "sma100": 807.59, "sma200": 542.92, "goldenCross": false, "deathCross": false, "rsi": 37.7, "rsiLabel": "Neutral", "macd": -27.9, "macdSignal": -16.25, "macdLabel": "Bearish and weakening", "percentB": -0.15, "bbLabel": "Near lower band (oversold stretch)", "volumeTrend": "Stable \u2014 in line with recent average", "volRatioToday": 0.9, "support": 654.79, "resistance": 783.25, "fibLevels": {"0.236": 881.08, "0.382": 774.67, "0.5": 688.67, "0.618": 602.67, "0.786": 480.22}, "fibDirection": "pullback zones below the recent high", "pattern": "Lower highs & lower lows \u2014 downtrend continuation", "entry": 728.32, "entryNote": "At/near current price", "stopLoss": 519.61, "target": 783.25, "riskReward": 0.26, "confidence": "Neutral", "confidenceScore": 2, "confidenceReasons": ["+1 Monthly trend up", "+1 bullish MA stack (50>100>200)"], "ticker": "LITE", "name": "Lumentum", "sector": "Information Technology"}, {"price": 156.25, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 126.81, "sma100": 104.27, "sma200": 93.15, "goldenCross": false, "deathCross": false, "rsi": 67.1, "rsiLabel": "Neutral", "macd": 7.52, "macdSignal": 7.82, "macdLabel": "Bearish", "percentB": 0.89, "bbLabel": "Near upper band (overbought stretch)", "volumeTrend": "Stable \u2014 in line with recent average", "volRatioToday": 0.66, "support": 138.39, "resistance": 158.98, "fibLevels": {"0.236": 139.21, "0.382": 126.99, "0.5": 117.1, "0.618": 107.22, "0.786": 93.15}, "fibDirection": "pullback zones below the recent high", "pattern": "No classic pattern detected \u2014 trending price action", "entry": 156.25, "entryNote": "At/near current price", "stopLoss": 140.57, "target": 158.98, "riskReward": 0.17, "confidence": "Buy", "confidenceScore": 5, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)"], "ticker": "FTNT", "name": "Fortinet", "sector": "Information Technology"}, {"price": 235.55, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 208.72, "sma100": 180.9, "sma200": 151.7, "goldenCross": false, "deathCross": false, "rsi": 49.8, "rsiLabel": "Neutral", "macd": 17.1, "macdSignal": 17.96, "macdLabel": "Bearish and weakening", "percentB": 0.42, "bbLabel": "Within bands (neutral)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 1.44, "support": 174.06, "resistance": 301.71, "fibLevels": {"0.236": 259.11, "0.382": 232.75, "0.5": 211.45, "0.618": 190.15, "0.786": 159.83}, "fibDirection": "pullback zones below the recent high", "pattern": "No classic pattern detected \u2014 trending price action", "entry": 235.55, "entryNote": "At/near current price", "stopLoss": 186.07, "target": 301.71, "riskReward": 1.34, "confidence": "Strong Buy", "confidenceScore": 6, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 volume confirming move"], "ticker": "KLAC", "name": "KLA Corporation", "sector": "Information Technology"}, {"price": 260.36, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 207.94, "sma100": 164.09, "sma200": 156.08, "goldenCross": false, "deathCross": false, "rsi": 68.4, "rsiLabel": "Neutral", "macd": 11.53, "macdSignal": 9.77, "macdLabel": "Bullish and strengthening", "percentB": 0.96, "bbLabel": "Near upper band (overbought stretch)", "volumeTrend": "Falling \u2014 move lacks strong volume confirmation", "volRatioToday": 0.61, "support": 227.34, "resistance": 277.49, "fibLevels": {"0.236": 236.22, "0.382": 210.69, "0.5": 190.05, "0.618": 169.42, "0.786": 140.04}, "fibDirection": "pullback zones below the recent high", "pattern": "Possible cup & handle (bullish continuation) \u2014 heuristic read", "entry": 260.36, "entryNote": "At/near current price", "stopLoss": 228.51, "target": 277.49, "riskReward": 0.54, "confidence": "Strong Buy", "confidenceScore": 6, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 MACD bullish"], "ticker": "DDOG", "name": "Datadog", "sector": "Information Technology"}, {"price": 369.09, "dailyTrend": "Mixed", "weeklyTrend": "Mixed", "monthlyTrend": "Uptrend", "sma50": 384.62, "sma100": 352.31, "sma200": 267.77, "goldenCross": false, "deathCross": false, "rsi": 44.1, "rsiLabel": "Neutral", "macd": 15.59, "macdSignal": 19.27, "macdLabel": "Bearish and weakening", "percentB": 0.21, "bbLabel": "Within bands (neutral)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 1.04, "support": 347.59, "resistance": 382.34, "fibLevels": {"0.236": 415.3, "0.382": 372.89, "0.5": 338.62, "0.618": 304.35, "0.786": 255.56}, "fibDirection": "pullback zones below the recent high", "pattern": "Higher highs & higher lows \u2014 uptrend continuation", "entry": 369.09, "entryNote": "At/near current price", "stopLoss": 335.92, "target": 382.34, "riskReward": 0.4, "confidence": "Buy", "confidenceScore": 4, "confidenceReasons": ["+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 volume confirming move"], "ticker": "TER", "name": "Teradyne", "sector": "Information Technology"}, {"price": 348.06, "dailyTrend": "Uptrend", "weeklyTrend": "Uptrend", "monthlyTrend": "Uptrend", "sma50": 251.44, "sma100": 206.17, "sma200": 201.47, "goldenCross": false, "deathCross": false, "rsi": 78.5, "rsiLabel": "Overbought", "macd": 24.22, "macdSignal": 19.35, "macdLabel": "Bullish and strengthening", "percentB": 0.99, "bbLabel": "Near upper band (overbought stretch)", "volumeTrend": "Stable \u2014 in line with recent average", "volRatioToday": 1.0, "support": 260.52, "resistance": 352.04, "fibLevels": {"0.236": 302.39, "0.382": 271.68, "0.5": 246.86, "0.618": 222.03, "0.786": 186.69}, "fibDirection": "pullback zones below the recent high", "pattern": "Possible cup & handle (bullish continuation) \u2014 heuristic read", "entry": 271.68, "entryNote": "Wait for pullback toward 38.2% Fib / recent swing low \u2014 RSI is stretched", "stopLoss": 256.74, "target": 352.04, "riskReward": 5.38, "confidence": "Strong Buy", "confidenceScore": 6, "confidenceReasons": ["+1 Daily trend up", "+1 Weekly trend up", "+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 MACD bullish", "+1 R:R >= 2 (5.38)"], "ticker": "PANW", "name": "Palo Alto Networks", "sector": "Information Technology"}, {"price": 1741.3, "dailyTrend": "Mixed", "weeklyTrend": "Mixed", "monthlyTrend": "Uptrend", "sma50": 1883.21, "sma100": 1658.48, "sma200": 1306.25, "goldenCross": false, "deathCross": false, "rsi": 42.2, "rsiLabel": "Neutral", "macd": 7.48, "macdSignal": 24.67, "macdLabel": "Bearish and weakening", "percentB": 0.04, "bbLabel": "Near lower band (oversold stretch)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 1.19, "support": 1719.48, "resistance": 1883.56, "fibLevels": {"0.236": 1798.87, "0.382": 1633.3, "0.5": 1499.48, "0.618": 1365.65, "0.786": 1175.13}, "fibDirection": "pullback zones below the recent high", "pattern": "No classic pattern detected \u2014 trending price action", "entry": 1741.3, "entryNote": "At/near current price", "stopLoss": 1686.35, "target": 1883.56, "riskReward": 2.59, "confidence": "Buy", "confidenceScore": 5, "confidenceReasons": ["+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 volume confirming move", "+1 R:R >= 2 (2.59)"], "ticker": "FIX", "name": "Comfort Systems USA", "sector": "Industrials"}, {"price": 300.53, "dailyTrend": "Mixed", "weeklyTrend": "Mixed", "monthlyTrend": "Uptrend", "sma50": 324.55, "sma100": 293.25, "sma200": 232.39, "goldenCross": false, "deathCross": false, "rsi": 45.5, "rsiLabel": "Neutral", "macd": -1.59, "macdSignal": -0.96, "macdLabel": "Bearish and weakening", "percentB": 0.34, "bbLabel": "Within bands (neutral)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 0.8, "support": 280.92, "resistance": 334.42, "fibLevels": {"0.236": 325.31, "0.382": 293.85, "0.5": 268.43, "0.618": 243.01, "0.786": 206.81}, "fibDirection": "pullback zones below the recent high", "pattern": "No classic pattern detected \u2014 trending price action", "entry": 300.53, "entryNote": "At/near current price", "stopLoss": 274.13, "target": 334.42, "riskReward": 1.28, "confidence": "Buy", "confidenceScore": 4, "confidenceReasons": ["+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 volume confirming move"], "ticker": "VRT", "name": "Vertiv", "sector": "Industrials"}, {"price": 252.66, "dailyTrend": "Mixed", "weeklyTrend": "Mixed", "monthlyTrend": "Uptrend", "sma50": 263.65, "sma100": 236.8, "sma200": 200.05, "goldenCross": false, "deathCross": false, "rsi": 43.6, "rsiLabel": "Neutral", "macd": 3.72, "macdSignal": 5.94, "macdLabel": "Bearish and weakening", "percentB": 0.17, "bbLabel": "Near lower band (oversold stretch)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 1.39, "support": 243.97, "resistance": 276.49, "fibLevels": {"0.236": 257.98, "0.382": 234.74, "0.5": 215.96, "0.618": 197.17, "0.786": 170.43}, "fibDirection": "pullback zones below the recent high", "pattern": "No classic pattern detected \u2014 trending price action", "entry": 252.66, "entryNote": "At/near current price", "stopLoss": 234.23, "target": 276.49, "riskReward": 1.29, "confidence": "Buy", "confidenceScore": 4, "confidenceReasons": ["+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)", "+1 volume confirming move"], "ticker": "GNRC", "name": "Generac", "sector": "Industrials"}, {"price": 422.46, "dailyTrend": "Mixed", "weeklyTrend": "Mixed", "monthlyTrend": "Uptrend", "sma50": 516.88, "sma100": 450.09, "sma200": 325.56, "goldenCross": false, "deathCross": false, "rsi": 37.4, "rsiLabel": "Neutral", "macd": -16.78, "macdSignal": -17.56, "macdLabel": "Bullish", "percentB": 0.15, "bbLabel": "Near lower band (oversold stretch)", "volumeTrend": "Rising \u2014 increasing participation confirms the move", "volRatioToday": 0.52, "support": 365.0, "resistance": 437.7, "fibLevels": {"0.236": 532.18, "0.382": 473.52, "0.5": 426.11, "0.618": 378.69, "0.786": 311.19}, "fibDirection": "pullback zones below the recent high", "pattern": "No classic pattern detected \u2014 trending price action", "entry": 422.46, "entryNote": "At/near current price", "stopLoss": 412.33, "target": 437.7, "riskReward": 1.5, "confidence": "Buy", "confidenceScore": 4, "confidenceReasons": ["+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 MACD bullish", "+1 volume confirming move"], "ticker": "CIEN", "name": "Ciena", "sector": "Information Technology"}, {"price": 333.36, "dailyTrend": "Mixed", "weeklyTrend": "Mixed", "monthlyTrend": "Uptrend", "sma50": 369.02, "sma100": 315.82, "sma200": 236.79, "goldenCross": false, "deathCross": false, "rsi": 41.2, "rsiLabel": "Neutral", "macd": 0.36, "macdSignal": 6.66, "macdLabel": "Bearish and weakening", "percentB": -0.06, "bbLabel": "Near lower band (oversold stretch)", "volumeTrend": "Stable \u2014 in line with recent average", "volRatioToday": 1.14, "support": 319.19, "resistance": 350.47, "fibLevels": {"0.236": 367.01, "0.382": 329.96, "0.5": 300.02, "0.618": 270.08, "0.786": 227.45}, "fibDirection": "pullback zones below the recent high", "pattern": "Lower highs & lower lows \u2014 downtrend continuation", "entry": 333.36, "entryNote": "At/near current price", "stopLoss": 322.04, "target": 350.47, "riskReward": 1.51, "confidence": "Neutral", "confidenceScore": 3, "confidenceReasons": ["+1 Monthly trend up", "+1 bullish MA stack (50>100>200)", "+1 RSI healthy (not overbought)"], "ticker": "COHR", "name": "Coherent Corp.", "sector": "Information Technology"}];
+const AS_OF = "2026-07-02 · generated 2026-07-04 19:59 UTC+1000";
+const SECTOR_COLORS = {"Information Technology": "#3b82f6", "Health Care": "#14b8a6", "Financials": "#a855f7", "Consumer Discretionary": "#eab308", "Communication Services": "#ec4899", "Industrials": "#f97316", "Consumer Staples": "#84cc16", "Energy": "#ef4444", "Utilities": "#06b6d4", "Real Estate": "#6366f1", "Materials": "#78716c"};
+
+document.getElementById("asOfLabel").textContent = "As of " + AS_OF + " · " + DATA.length + " names";
+
+function trendClass(t) {
+  if (t === "Uptrend") return "trend-up";
+  if (t === "Downtrend") return "trend-down";
+  return "trend-mixed";
+}
+
+function confClass(c) {
+  return "conf-" + c.toLowerCase().replace(/ /g, "-");
+}
+
+function sectorBadge(sector) {
+  const color = SECTOR_COLORS[sector] || "#6b7280";
+  return `<span class="sector-badge" style="background:${color}22; color:${color};">${sector}</span>`;
+}
+
+function fibList(fibLevels) {
+  return Object.entries(fibLevels).map(([r, v]) => `${(parseFloat(r)*100).toFixed(1)}%: $${v}`).join(" &nbsp;·&nbsp; ");
+}
+
+function renderCard(d) {
+  const rrClass = (d.riskReward !== null && d.riskReward >= 2) ? "rr-good" : "rr-poor";
+  return `
+    <div class="card">
+      <div class="card-head">
+        <div class="ticker-block">
+          <div class="ticker">${d.ticker}</div>
+          <div class="name">${d.name}</div>
+          ${sectorBadge(d.sector)}
+          <div class="price">$${d.price}</div>
+        </div>
+        <span class="confidence-badge ${confClass(d.confidence)}">${d.confidence}</span>
+      </div>
+
+      <div class="section-label">Trend (daily / weekly / monthly)</div>
+      <div class="trend-row">
+        <span class="trend-pill ${trendClass(d.dailyTrend)}">D: ${d.dailyTrend}</span>
+        <span class="trend-pill ${trendClass(d.weeklyTrend)}">W: ${d.weeklyTrend}</span>
+        <span class="trend-pill ${trendClass(d.monthlyTrend)}">M: ${d.monthlyTrend}</span>
+      </div>
+
+      <div class="section-label">Moving averages</div>
+      <div class="kv-grid">
+        <div class="k">50d SMA</div><div class="v">${d.sma50 !== null ? "$"+d.sma50 : "—"}</div>
+        <div class="k">100d SMA</div><div class="v">${d.sma100 !== null ? "$"+d.sma100 : "—"}</div>
+        <div class="k">200d SMA</div><div class="v">${d.sma200 !== null ? "$"+d.sma200 : "—"}</div>
+        <div class="k">Cross signal</div><div class="v">${d.goldenCross ? "Golden cross (recent)" : d.deathCross ? "Death cross (recent)" : "None recent"}</div>
+      </div>
+
+      <div class="section-label">Momentum & volatility</div>
+      <div class="indicator-line"><span class="label">RSI(14):</span> ${d.rsi ?? "—"} — ${d.rsiLabel}</div>
+      <div class="indicator-line"><span class="label">MACD:</span> ${d.macd} vs signal ${d.macdSignal} — ${d.macdLabel}</div>
+      <div class="indicator-line"><span class="label">Bollinger %B:</span> ${d.percentB ?? "—"} — ${d.bbLabel}</div>
+      <div class="indicator-line"><span class="label">Volume:</span> ${d.volumeTrend}</div>
+
+      <div class="section-label">Key levels</div>
+      <div class="kv-grid">
+        <div class="k">Support</div><div class="v">$${d.support}</div>
+        <div class="k">Resistance</div><div class="v">$${d.resistance}</div>
+      </div>
+      <div class="pattern-text" style="margin-top:6px;">Fib ${d.fibDirection}: ${fibList(d.fibLevels)}</div>
+
+      <div class="section-label">Pattern read</div>
+      <div class="pattern-text">${d.pattern}</div>
+
+      <div class="section-label">Trade plan</div>
+      <div class="plan-box">
+        <div class="plan-row"><span>Entry</span><span>$${d.entry} <span style="color:var(--text-dim);font-size:11px;">(${d.entryNote})</span></span></div>
+        <div class="plan-row"><span>Stop-loss</span><span>$${d.stopLoss}</span></div>
+        <div class="plan-row"><span>Target</span><span>$${d.target}</span></div>
+        <div class="plan-row"><span>Risk:Reward</span><span class="${rrClass}">${d.riskReward !== null ? "1:" + d.riskReward : "—"}</span></div>
+      </div>
+      <div class="score-note">Confidence score ${d.confidenceScore}/7 — ${d.confidenceReasons.join(", ") || "no positive factors met"}</div>
+    </div>
+  `;
+}
+
+function render() {
+  const sortBy = document.getElementById("sortSelect").value;
+  let sorted = [...DATA];
+  if (sortBy === "confidence") sorted.sort((a, b) => b.confidenceScore - a.confidenceScore);
+  else if (sortBy === "rr") sorted.sort((a, b) => (b.riskReward ?? -Infinity) - (a.riskReward ?? -Infinity));
+  else sorted.sort((a, b) => a.ticker.localeCompare(b.ticker));
+
+  document.getElementById("cardGrid").innerHTML = sorted.map(renderCard).join("");
+}
+
+document.getElementById("sortSelect").addEventListener("change", render);
+render();
+</script>
+</body>
+</html>
