@@ -91,11 +91,27 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 .leaflet-container{background:#0d1825!important}
 
 /* Sidebar */
-#sb{position:absolute;top:10px;right:10px;bottom:10px;z-index:900;width:234px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
-#sb::-webkit-scrollbar{width:6px}
-#sb::-webkit-scrollbar-thumb{background:var(--bdrs);border-radius:3px}
+/* No scroll on the sidebar itself — panels above Known marks keep their
+   natural size (flex-shrink:0 below) and Known marks (#marks-panel) is the
+   one flexible panel that absorbs any leftover height, scrolling internally
+   via #marks-list so a long/expanded mark list never pushes the Conditions,
+   Legend, or Live readings panels out of view. */
+#sb{position:absolute;top:10px;right:10px;bottom:10px;z-index:900;width:234px;display:flex;flex-direction:column;gap:8px;overflow:hidden;transition:bottom .2s ease}
 #sb .panel{flex-shrink:0}
 .panel{background:rgba(18,28,46,.94);border:1px solid var(--bdrs);border-radius:8px;padding:11px 13px;backdrop-filter:blur(8px)}
+/* #sb #marks-panel (not just #marks-panel) so this outranks the "#sb .panel"
+   flex-shrink:0 rule above -- an ID+class descendant selector beats a lone ID
+   selector on specificity, so a plain #marks-panel override here would
+   silently lose and the panel would never actually shrink. */
+#sb #marks-panel{flex:1 1 auto;min-height:80px;display:flex;flex-direction:column;overflow:hidden}
+#marks-list{flex:1;overflow-y:auto;min-height:0}
+#marks-list::-webkit-scrollbar{width:6px}
+#marks-list::-webkit-scrollbar-thumb{background:var(--bdrs);border-radius:3px}
+/* Forecast panel is full-width, bottom-docked, and sits above the sidebar in
+   z-index (1100 vs 900) — without raising the sidebar's bottom edge to clear
+   it, opening a forecast simply hides whatever the panel's max-height (64vh)
+   covers, with no way to scroll to it. */
+#map.forecast-open #sb{bottom:calc(64vh + 16px)}
 .pt{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:9px}
 #rv{font-size:28px;font-weight:700;line-height:1}
 #ru{font-size:12px;color:var(--mut);margin-left:2px}
@@ -110,12 +126,24 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 .up{color:#ff8c6e}.dn{color:#5de09a}
 #lgrd{height:10px;border-radius:3px;margin-bottom:5px}
 #llabs{display:flex;justify-content:space-between;font-size:10px;color:var(--dim)}
-.mr{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bdr);cursor:pointer}
+.mr{display:flex;justify-content:space-between;align-items:center;padding:5px 4px;border-bottom:1px solid var(--bdr);cursor:pointer}
 .mr:last-child{border-bottom:none}
 .mr:hover .mn{color:var(--acc)}
 .mi{width:7px;height:7px;border-radius:50%;background:#ff8c6e;margin-right:6px;flex-shrink:0}
 .mn{font-size:12px;color:var(--mut);transition:color .1s}
 .md{font-size:11px;color:var(--dim)}
+
+/* Known-marks group disclosures — replace the default browser summary marker
+   (inconsistent styling, cramped against the label) with a themed chevron and
+   give each group breathing room so expanding several groups at once (or
+   "All groups") reads as a list of distinct sections, not a run-on block. */
+#marks-list details{margin-bottom:6px}
+#marks-list details:last-child{margin-bottom:0}
+#marks-list summary{list-style:none;display:flex;align-items:center;gap:5px}
+#marks-list summary::-webkit-details-marker{display:none}
+#marks-list summary::before{content:'▸';display:inline-block;font-size:9px;color:var(--dim);transition:transform .15s ease}
+#marks-list details[open]>summary::before{transform:rotate(90deg)}
+#marks-list details+details{border-top:1px solid var(--bdr);padding-top:6px}
 
 /* Spinner overlay on map */
 #spinner{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:910;background:rgba(18,28,46,.92);border:1px solid var(--bdrs);border-radius:20px;padding:6px 14px;font-size:11px;color:var(--mut);display:none;align-items:center;gap:8px;pointer-events:none}
@@ -303,35 +331,40 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
     </div>
 
     <div class="panel">
-      <div class="pt">Conditions — <span id="rname">Shell Cove</span> <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">(regional estimates)</span></div>
-      <div class="sr">
-        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--sst);display:inline-block;margin-right:5px"></span>SST</span>
-        <div style="text-align:right"><div class="sv" id="s-sst">—</div><div class="sd up" id="s-sstd"></div></div>
+      <div class="pt" id="cond-toggle" onclick="toggleConditions()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+        <span>Conditions — <span id="rname">Shell Cove</span> <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">(regional estimates)</span></span>
+        <span id="cond-chevron" style="transition:transform .15s ease;flex-shrink:0;margin-left:6px">▾</span>
       </div>
-      <div class="sr">
-        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--chl);display:inline-block;margin-right:5px"></span>Chlorophyll</span>
-        <div style="text-align:right"><div class="sv" id="s-chl">—</div><div class="sd dn" id="s-chld"></div></div>
-      </div>
-      <div class="sr">
-        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--alt);display:inline-block;margin-right:5px"></span>Sea level anom.</span>
-        <div style="text-align:right"><div class="sv" id="s-alt">—</div><div class="sd up" id="s-altd"></div></div>
-      </div>
-      <div class="sr">
-        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#3a7ca5;display:inline-block;margin-right:5px"></span>Depth</span>
-        <div style="text-align:right"><div class="sv" id="s-depth">~380m</div><div class="sd" style="color:var(--dim)" id="s-depthd">Kiama Canyon</div></div>
+      <div id="cond-body">
+        <div class="sr">
+          <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--sst);display:inline-block;margin-right:5px"></span>SST</span>
+          <div style="text-align:right"><div class="sv" id="s-sst">—</div><div class="sd up" id="s-sstd"></div></div>
+        </div>
+        <div class="sr">
+          <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--chl);display:inline-block;margin-right:5px"></span>Chlorophyll</span>
+          <div style="text-align:right"><div class="sv" id="s-chl">—</div><div class="sd dn" id="s-chld"></div></div>
+        </div>
+        <div class="sr">
+          <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--alt);display:inline-block;margin-right:5px"></span>Sea level anom.</span>
+          <div style="text-align:right"><div class="sv" id="s-alt">—</div><div class="sd up" id="s-altd"></div></div>
+        </div>
+        <div class="sr">
+          <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#3a7ca5;display:inline-block;margin-right:5px"></span>Depth</span>
+          <div style="text-align:right"><div class="sv" id="s-depth">~380m</div><div class="sd" style="color:var(--dim)" id="s-depthd">Kiama Canyon</div></div>
+        </div>
       </div>
     </div>
 
-    <div class="panel">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:6px">
+    <div class="panel" id="marks-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:6px;flex-shrink:0">
         <span class="pt" style="margin:0">Known marks</span>
         <div style="display:flex;gap:5px;flex-shrink:0">
           <button id="b-marks-edit" onclick="toggleMarksEditMode()" title="Toggle edit mode — click a mark in the list to edit it" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;white-space:nowrap">✎ Edit</button>
           <button onclick="startAddMark()" style="background:var(--acc);color:#fff;border:none;border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;white-space:nowrap">＋ Add</button>
         </div>
       </div>
-      <select id="mark-group-filter" onchange="renderMarksList()" style="width:100%;background:var(--surf2);border:1px solid var(--bdrs);color:var(--mut);border-radius:4px;font-size:11px;padding:5px 6px;font-family:inherit;outline:none;margin-bottom:6px"></select>
-      <div style="display:flex;justify-content:flex-end;gap:5px;margin-bottom:8px">
+      <select id="mark-group-filter" onchange="renderMarksList()" style="width:100%;background:var(--surf2);border:1px solid var(--bdrs);color:var(--mut);border-radius:4px;font-size:11px;padding:5px 6px;font-family:inherit;outline:none;margin-bottom:6px;flex-shrink:0"></select>
+      <div style="display:flex;justify-content:flex-end;gap:5px;margin-bottom:8px;flex-shrink:0">
         <button onclick="exportMarks()" title="Download all marks as a JSON file" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬇ Export</button>
         <button onclick="document.getElementById('mark-import-input').click()" title="Import marks from a JSON file" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬆ Import</button>
         <input type="file" id="mark-import-input" accept="application/json,.json" style="display:none" onchange="importMarks(this.files[0]); this.value=''">
@@ -560,6 +593,12 @@ map.attributionControl.setPrefix('');
 // *underneath* the panel and reopens the forecast panel there, discarding the
 // scrub position and refetching from a coordinate the user never clicked.
 L.DomEvent.disableClickPropagation(document.getElementById('forecast-panel'));
+
+// Same problem, same fix, for the sidebar: it's also a plain div inside the
+// map container, so any click inside it (the new Conditions collapse toggle,
+// mark rows, buttons) bubbled up to map.on('click') and dropped a spurious
+// SST/Chl/SLA reading + marker at whatever point sits under the sidebar.
+L.DomEvent.disableClickPropagation(document.getElementById('sb'));
 
 let baseLayer = null, baseLayer2 = null;
 const markGroup = L.layerGroup().addTo(map);
@@ -1474,9 +1513,14 @@ let fcState = null; // {wx, marine, colTimes, colW, labelW, curCol}
 // whole bottom of the map, leaving much less vertical room above it, and a
 // large legend at its normal top-left spot could start crowding that
 // remaining space.
+// Same trigger also raises the sidebar's bottom edge (#map.forecast-open in
+// CSS) so the forecast panel — full-width and above the sidebar in z-index —
+// never covers it; without this the bottom of the sidebar was simply
+// inaccessible while a forecast was open.
 function updateCurrentLegendSize() {
   const forecastOpen = document.getElementById('forecast-panel').style.display !== 'none';
   document.getElementById('current-legend').classList.toggle('compact', forecastOpen);
+  document.getElementById('map').classList.toggle('forecast-open', forecastOpen);
 }
 
 async function openForecastPanel(lat, lng) {
@@ -2258,6 +2302,13 @@ function flyToMark(id) {
 let marksEditMode = false;
 function markRowClick(id) {
   if (marksEditMode) openEditMark(id); else flyToMark(id);
+}
+
+function toggleConditions() {
+  const body = document.getElementById('cond-body');
+  const collapsed = body.style.display === 'none';
+  body.style.display = collapsed ? '' : 'none';
+  document.getElementById('cond-chevron').style.transform = collapsed ? '' : 'rotate(-90deg)';
 }
 
 function toggleMarksEditMode() {
