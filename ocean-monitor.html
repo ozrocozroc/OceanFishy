@@ -1336,6 +1336,24 @@ function toggleSwell() {
 // 16 days (their maximum forecast horizon). ──────────────────────────────────
 let forecastModeActive = false;
 let forecastReqId = 0;
+let forecastPointMarker = null; // one marker, moved to the latest clicked point rather than accumulating
+
+// Places (or moves) the single forecast-point marker — one marker on the
+// map at a time, matching whichever point the panel is currently showing,
+// instead of leaving behind a new one on every click.
+function setForecastPointMarker(lat, lng) {
+  if (forecastPointMarker) {
+    forecastPointMarker.setLatLng([lat, lng]);
+  } else {
+    forecastPointMarker = L.circleMarker([lat, lng], {
+      radius: 7, color: '#fff', weight: 2, fillColor: '#e8a83a', fillOpacity: .9,
+    }).addTo(map);
+  }
+}
+
+function removeForecastPointMarker() {
+  if (forecastPointMarker) { map.removeLayer(forecastPointMarker); forecastPointMarker = null; }
+}
 
 // Returns Wind/Swell to live "now" conditions once the Forecast panel is no
 // longer scrubbable — otherwise they'd stay silently stuck showing whatever
@@ -1357,6 +1375,7 @@ function toggleForecastMode() {
     document.getElementById('forecast-panel').style.display = 'none';
     resetForecastScrubToLive();
     updateCurrentLegendSize();
+    removeForecastPointMarker();
   }
 }
 
@@ -1371,6 +1390,7 @@ function closeForecastPanel() {
   setStatus('');
   resetForecastScrubToLive();
   updateCurrentLegendSize();
+  removeForecastPointMarker();
 }
 
 // Simple synodic-month approximation, accurate to within ~a day — plenty for
@@ -1454,6 +1474,7 @@ async function openForecastPanel(lat, lng) {
   const panel = document.getElementById('forecast-panel');
   panel.style.display = 'flex';
   updateCurrentLegendSize();
+  setForecastPointMarker(lat, lng);
   document.getElementById('fc-coords').textContent =
     Math.abs(lat).toFixed(3) + (lat<0?'°S':'°N') + ' · ' + Math.abs(lng).toFixed(3) + (lng>0?'°E':'°W');
   document.getElementById('fc-body').innerHTML = '<div style="font-size:12px;color:var(--dim);padding:20px 0;text-align:center">Loading forecast…</div>';
@@ -1479,8 +1500,18 @@ async function openForecastPanel(lat, lng) {
 function renderForecastPanel(wx, marine) {
   const times = wx.hourly.time;
   const STEP = 3; // 3-hourly columns, matching Windy's default zoom level
+
+  // Open-Meteo's marine model only actually forecasts ~10 days ahead, even
+  // though it happily returns 16 days of timestamps when asked — everything
+  // past its real horizon comes back as null values, not a shorter array.
+  // Trimming the whole timeline (not just the marine rows) to that real
+  // cutoff avoids the confusing look of wind/temp still populated while
+  // wave/swell/power/tide silently go blank for the last several days.
+  let marineHorizonHours = marine.hourly.wave_height.findIndex(v => v == null);
+  if (marineHorizonHours < 0) marineHorizonHours = times.length;
+
   const colTimes = [];
-  for (let i = 0; i < times.length; i += STEP) colTimes.push(i);
+  for (let i = 0; i < marineHorizonHours; i += STEP) colTimes.push(i);
   const nCols = colTimes.length;
   const colW = 30, labelW = 100;
   const nowMs = Date.now();
