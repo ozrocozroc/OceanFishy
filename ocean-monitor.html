@@ -552,6 +552,15 @@ const map = L.map('map', {
 });
 map.attributionControl.setPrefix('');
 
+// The forecast panel (and its hour-cell click targets) is a plain absolutely
+// positioned div living inside the Leaflet map container, not a Leaflet
+// control — without this, a plain click on an .fc-col cell (scrubbing the
+// timeline) bubbles straight up through to map.on('click'), which — while
+// forecastModeActive is true — reads whatever lat/lng sits on the map
+// *underneath* the panel and reopens the forecast panel there, discarding the
+// scrub position and refetching from a coordinate the user never clicked.
+L.DomEvent.disableClickPropagation(document.getElementById('forecast-panel'));
+
 let baseLayer = null, baseLayer2 = null;
 const markGroup = L.layerGroup().addTo(map);
 const contourGroup = L.layerGroup().addTo(map);
