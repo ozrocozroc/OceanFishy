@@ -104,9 +104,18 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
    and gets written multiple times per forecast open (loading-state height,
    then real-content height) — animating between those in quick succession is
    more likely to look janky/inconsistent than a plain instant snap. */
-#sb{position:absolute;top:10px;right:10px;bottom:10px;z-index:900;width:234px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+/* z-index:940 (not 900) — #src (the bottom attribution bar) is ALSO 900 and
+   comes later in the DOM, so on a tie it wins the stacking order and visually
+   covers the sidebar's bottom edge (this is exactly what the mobile drawer
+   rule already avoids, using 940 there too — this was just never matched on
+   desktop). */
+#sb{position:absolute;top:10px;right:10px;bottom:10px;z-index:940;width:234px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
 #sb .panel{flex-shrink:0}
-.panel{background:rgba(18,28,46,.94);border:1px solid var(--bdrs);border-radius:8px;padding:11px 13px;backdrop-filter:blur(8px)}
+/* box-shadow adds depth separation from the sidebar/page background behind
+   it — panel, sidebar, and page background are all similar dark navy tones,
+   so the 1px border alone was easy to miss as "where the box ends",
+   especially for the last panel sitting close to the sidebar's own edge. */
+.panel{background:rgba(18,28,46,.94);border:1px solid var(--bdrs);border-radius:8px;padding:11px 13px;backdrop-filter:blur(8px);box-shadow:0 2px 8px rgba(0,0,0,.35)}
 /* #sb #marks-panel (not just #marks-panel) so this outranks the "#sb .panel"
    flex-shrink:0 rule above -- an ID+class descendant selector beats a lone ID
    selector on specificity, so a plain #marks-panel override here would
@@ -240,7 +249,12 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
     width:auto;max-height:68vh;max-height:68dvh;overflow-y:auto;
     border-radius:14px 14px 0 0;
     background:rgba(11,19,32,.97);
-    padding:14px 10px calc(env(safe-area-inset-bottom,0px) + 10px);
+    /* Bumped from 10px: the last panel's border sat close enough to the true
+       window edge, with backgrounds close enough in tone (panel vs sidebar
+       vs page all similar dark navy), that the boundary was easy to miss
+       entirely even though it was technically rendered and on top. More
+       clear space makes "this is the end" unambiguous. */
+    padding:14px 10px calc(env(safe-area-inset-bottom,0px) + 22px);
     transform:translateY(100%);transition:transform .25s ease;
     z-index:940;
   }
