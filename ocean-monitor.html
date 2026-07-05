@@ -1705,7 +1705,7 @@ function renderForecastPanel(wx, marine) {
   const colTimes = [];
   for (let i = 0; i < marineHorizonHours; i += STEP) colTimes.push(i);
   const nCols = colTimes.length;
-  const colW = 30, labelW = 100;
+  const colW = 34, labelW = 100;
   const nowMs = Date.now();
 
   const moon = moonPhase(new Date());
@@ -1735,7 +1735,7 @@ function renderForecastPanel(wx, marine) {
   const dowShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
   const gridCols = `${labelW}px repeat(${nCols}, ${colW}px)`;
-  const label = (text) => `<div style="position:sticky;left:0;z-index:2;background:rgba(11,19,32,.97);font-size:10px;color:var(--dim);display:flex;align-items:center;padding:0 7px;border-right:1px solid var(--bdr);white-space:nowrap;line-height:1.2">${text}</div>`;
+  const label = (text) => `<div style="position:sticky;left:0;z-index:2;background:rgba(11,19,32,.97);font-size:11px;color:var(--dim);display:flex;align-items:center;padding:0 8px;border-right:1px solid var(--bdr);white-space:nowrap;line-height:1.2">${text}</div>`;
   // A subtle tint over night-time columns (is_day===0), applied to the plain
   // (non color-scaled) rows so day/night is readable at a glance without
   // fighting the wind-strength color coding.
@@ -1750,7 +1750,7 @@ function renderForecastPanel(wx, marine) {
   let dayRow = label('');
   dayGroups.forEach(g => {
     const d = new Date(g.day + 'T00:00:00Z');
-    dayRow += `<div style="grid-column:span ${g.count};font-size:12px;font-weight:600;padding:5px 0 5px 4px;border-left:1px solid var(--bdr)">${dowFull[d.getUTCDay()]} ${d.getUTCDate()}</div>`;
+    dayRow += `<div style="grid-column:span ${g.count};font-size:13px;font-weight:600;padding:7px 0 7px 4px;border-left:1px solid var(--bdr)">${dowFull[d.getUTCDay()]} ${d.getUTCDate()}</div>`;
   });
 
   let hourRow = label('Hour'), iconRow = label('Weather'), tempRow = label('Temp °C'),
@@ -1775,46 +1775,46 @@ function renderForecastPanel(wx, marine) {
     const isDay = wx.hourly.is_day ? wx.hourly.is_day[hi] : 1;
     const nbg = nightBg(isDay);
 
-    hourRow += `<div class="fc-col" onclick="fcScrubTo(${ci})" style="${nbg}font-size:9px;color:var(--dim);text-align:center;padding:3px 0;cursor:pointer">${hourLabel}</div>`;
+    hourRow += `<div class="fc-col" onclick="fcScrubTo(${ci})" style="${nbg}font-size:10px;color:var(--dim);text-align:center;padding:5px 0;cursor:pointer">${hourLabel}</div>`;
 
     const code = wx.hourly.weather_code ? wx.hourly.weather_code[hi] : null;
-    iconRow += `<div style="${nbg}text-align:center;font-size:15px;padding:2px 0">${weatherIcon(code, isDay)}</div>`;
+    iconRow += `<div style="${nbg}text-align:center;font-size:17px;padding:4px 0">${weatherIcon(code, isDay)}</div>`;
 
     const t = wx.hourly.temperature_2m[hi];
-    tempRow += `<div style="background:${tempColor(t)};text-align:center;font-size:11px;font-weight:600;padding:2px 0">${t!=null?Math.round(t)+'°':'–'}</div>`;
+    tempRow += `<div style="background:${tempColor(t)};text-align:center;font-size:12px;font-weight:600;padding:4px 0">${t!=null?Math.round(t)+'°':'–'}</div>`;
 
     let rainSum = 0;
     for (let k = hi; k < Math.min(hi+STEP, times.length); k++) { const p = wx.hourly.precipitation?.[k]; if (p!=null) rainSum += p; }
     const barH = Math.max(2, Math.min(16, rainSum*10));
-    rainRow += `<div style="${nbg}height:18px;display:flex;align-items:flex-end;justify-content:center;padding-top:2px" title="${rainSum.toFixed(1)}mm">${rainSum>0.05?`<div style="width:6px;height:${barH}px;background:#4a90d9;border-radius:1px"></div>`:''}</div>`;
+    rainRow += `<div style="${nbg}height:24px;display:flex;align-items:flex-end;justify-content:center;padding-top:3px" title="${rainSum.toFixed(1)}mm">${rainSum>0.05?`<div style="width:6px;height:${barH}px;background:#4a90d9;border-radius:1px"></div>`:''}</div>`;
 
     const wkt = wx.hourly.wind_speed_10m[hi], gkt = wx.hourly.wind_gusts_10m[hi], wdir = wx.hourly.wind_direction_10m[hi];
-    windRow += `<div style="text-align:center;padding:2px 0 1px;background:${windColor(wkt)}">
-      <div style="line-height:1;margin-bottom:1px">${dirArrow(wdir,12)}</div>
-      <div style="font-size:10px;font-weight:700;line-height:1.2">${wkt!=null?Math.round(wkt):'–'}</div>
-      <div style="font-size:9px;opacity:.75;line-height:1.15">${gkt!=null?Math.round(gkt):'–'}</div>
+    windRow += `<div style="text-align:center;padding:4px 0 3px;background:${windColor(wkt)}">
+      <div style="line-height:1;margin-bottom:2px">${dirArrow(wdir,13)}</div>
+      <div style="font-size:11px;font-weight:700;line-height:1.2">${wkt!=null?Math.round(wkt):'–'}</div>
+      <div style="font-size:10px;opacity:.75;line-height:1.15">${gkt!=null?Math.round(gkt):'–'}</div>
     </div>`;
 
     const p = wx.hourly.pressure_msl[hi];
-    pressRow += `<div style="${nbg}text-align:center;font-size:10px;color:var(--dim);padding:2px 0">${p!=null?Math.round(p):'–'}</div>`;
+    pressRow += `<div style="${nbg}text-align:center;font-size:11px;color:var(--dim);padding:4px 0">${p!=null?Math.round(p):'–'}</div>`;
 
     const wh = marine.hourly.wave_height[hi], wavedir = marine.hourly.wave_direction?.[hi];
-    waveRow += `<div style="background:${waveColor(wh)};text-align:center;font-size:10px;padding:2px 0">
-      <div style="line-height:1">${dirArrow(wavedir,10)}</div>
+    waveRow += `<div style="background:${waveColor(wh)};text-align:center;font-size:11px;padding:4px 0">
+      <div style="line-height:1">${dirArrow(wavedir,11)}</div>
       <div>${wh!=null?wh.toFixed(1):'–'}</div>
     </div>`;
 
     const sh = marine.hourly.swell_wave_height[hi], sp = marine.hourly.swell_wave_period[hi], sdir = marine.hourly.swell_wave_direction?.[hi];
-    swellRow += `<div style="background:${waveColor(sh)};text-align:center;font-size:9px;padding:2px 0">
-      <div style="line-height:1">${dirArrow(sdir,10)}</div>
+    swellRow += `<div style="background:${waveColor(sh)};text-align:center;font-size:10px;padding:4px 0">
+      <div style="line-height:1">${dirArrow(sdir,11)}</div>
       <div>${sh!=null?sh.toFixed(1)+'/'+(sp!=null?Math.round(sp):'–'):'–'}</div>
     </div>`;
 
     const pw = wavePower[hi];
-    powerRow += `<div style="background:${powerColor(pw)};text-align:center;font-size:9px;padding:2px 0">${pw!=null?Math.round(pw):'–'}</div>`;
+    powerRow += `<div style="background:${powerColor(pw)};text-align:center;font-size:10px;padding:4px 0">${pw!=null?Math.round(pw):'–'}</div>`;
 
     const tv = tideVals[hi] != null ? tideVals[hi] - tideDatum : null;
-    tideRow += `<div style="background:${tideColor(tv)};text-align:center;font-size:10px;padding:2px 0">${tv!=null?tv.toFixed(1):'–'}</div>`;
+    tideRow += `<div style="background:${tideColor(tv)};text-align:center;font-size:11px;padding:4px 0">${tv!=null?tv.toFixed(1):'–'}</div>`;
   });
 
   const gridWidth = labelW + nCols*colW;
