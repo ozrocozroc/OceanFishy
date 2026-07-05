@@ -110,8 +110,13 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 /* Forecast panel is full-width, bottom-docked, and sits above the sidebar in
    z-index (1100 vs 900) — without raising the sidebar's bottom edge to clear
    it, opening a forecast simply hides whatever the panel's max-height (64vh)
-   covers, with no way to scroll to it. */
-#map.forecast-open #sb{bottom:calc(64vh + 16px)}
+   covers, with no way to scroll to it. Raising the bottom edge leaves the
+   sidebar with only ~36vh, which usually isn't enough room for every panel
+   even with Known marks shrunk to its floor — so fall back to letting the
+   whole sidebar scroll in this compressed state (normally, with the forecast
+   closed, only #marks-list scrolls internally; this is specifically the
+   "not enough room at all" case). */
+#map.forecast-open #sb{bottom:calc(64vh + 16px);overflow-y:auto}
 .pt{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:9px}
 #rv{font-size:28px;font-weight:700;line-height:1}
 #ru{font-size:12px;color:var(--mut);margin-left:2px}
@@ -1384,24 +1389,10 @@ function toggleSwell() {
 // 16 days (their maximum forecast horizon). ──────────────────────────────────
 let forecastModeActive = false;
 let forecastReqId = 0;
-let forecastPointMarker = null; // one marker, moved to the latest clicked point rather than accumulating
-
-// Places (or moves) the single forecast-point marker — one marker on the
-// map at a time, matching whichever point the panel is currently showing,
-// instead of leaving behind a new one on every click.
-function setForecastPointMarker(lat, lng) {
-  if (forecastPointMarker) {
-    forecastPointMarker.setLatLng([lat, lng]);
-  } else {
-    forecastPointMarker = L.circleMarker([lat, lng], {
-      radius: 7, color: '#fff', weight: 2, fillColor: '#e8a83a', fillOpacity: .9,
-    }).addTo(map);
-  }
-}
-
-function removeForecastPointMarker() {
-  if (forecastPointMarker) { map.removeLayer(forecastPointMarker); forecastPointMarker = null; }
-}
+// Forecast points used to get their own separate marker (setForecastPointMarker/
+// removeForecastPointMarker, a fixed orange circle) — now placeClickMark (near
+// the click handler) is called for forecast clicks too, so the map only ever
+// shows one marker regardless of which mode placed it.
 
 // Returns Wind/Swell to live "now" conditions once the Forecast panel is no
 // longer scrubbable — otherwise they'd stay silently stuck showing whatever
@@ -1423,13 +1414,13 @@ function toggleForecastMode() {
     document.getElementById('forecast-panel').style.display = 'none';
     resetForecastScrubToLive();
     updateCurrentLegendSize();
-    removeForecastPointMarker();
   }
 }
 
 // Closing the panel (✕) also exits forecast-click mode — otherwise the mode
 // stays armed and the very next map click reopens the panel right away,
-// making the ✕ look broken.
+// making the ✕ look broken. The click marker itself is left in place (same
+// as a normal reading click) — it's shared state now, not forecast-specific.
 function closeForecastPanel() {
   document.getElementById('forecast-panel').style.display = 'none';
   forecastModeActive = false;
@@ -1438,7 +1429,6 @@ function closeForecastPanel() {
   setStatus('');
   resetForecastScrubToLive();
   updateCurrentLegendSize();
-  removeForecastPointMarker();
 }
 
 // Simple synodic-month approximation, accurate to within ~a day — plenty for
@@ -1527,7 +1517,6 @@ async function openForecastPanel(lat, lng) {
   const panel = document.getElementById('forecast-panel');
   panel.style.display = 'flex';
   updateCurrentLegendSize();
-  setForecastPointMarker(lat, lng);
   document.getElementById('fc-coords').textContent =
     Math.abs(lat).toFixed(3) + (lat<0?'°S':'°N') + ' · ' + Math.abs(lng).toFixed(3) + (lng>0?'°E':'°W');
   document.getElementById('fc-body').innerHTML = '<div style="font-size:12px;color:var(--dim);padding:20px 0;text-align:center">Loading forecast…</div>';
@@ -1882,6 +1871,15 @@ function updateLegend() {
 }
 
 // ── Click readout ─────────────────────────────────────────────────────────────
+// Single shared marker for "the point you last clicked" — used for both the
+// SST/Chl/SLA readout AND the forecast panel, so there's never two dots on
+// the map (one used to be a separate fixed orange "forecast marker").
+function placeClickMark(lat, lng) {
+  if (clickMark) map.removeLayer(clickMark);
+  const col = curLayer==='sst'?'#ff8c6e':(curLayer==='chl'||curLayer==='chlOlci')?'#5de09a':curLayer==='depth'?'#6bbfd8':curLayer==='off'?'#fff':'#9bb0ff';
+  clickMark = L.circleMarker([lat,lng],{radius:5,color:'#fff',weight:1.5,fillColor:col,fillOpacity:.9}).addTo(map);
+}
+
 map.on('click', async e => {
   if (rulerActive) { addRulerPoint(e.latlng); return; }
   if (addingMark) {
@@ -1892,13 +1890,15 @@ map.on('click', async e => {
     return;
   }
   if (forecastModeActive) {
+    // Reuse the same click marker forecast mode used to place its own
+    // separate "forecast point" marker here, so a click never leaves two
+    // dots on the map (one for the reading, one for the forecast point).
+    placeClickMark(e.latlng.lat, e.latlng.lng);
     openForecastPanel(e.latlng.lat, e.latlng.lng);
     return; // stays active — click elsewhere to check another point
   }
   const {lat, lng} = e.latlng;
-  if (clickMark) map.removeLayer(clickMark);
-  const col = curLayer==='sst'?'#ff8c6e':(curLayer==='chl'||curLayer==='chlOlci')?'#5de09a':curLayer==='depth'?'#6bbfd8':curLayer==='off'?'#fff':'#9bb0ff';
-  clickMark = L.circleMarker([lat,lng],{radius:5,color:'#fff',weight:1.5,fillColor:col,fillOpacity:.9}).addTo(map);
+  placeClickMark(lat, lng);
 
   const ls = Math.abs(lat).toFixed(3)+(lat<0?'°S':'°N');
   const ms = Math.abs(lng).toFixed(3)+(lng>0?'°E':'°W');
@@ -2542,7 +2542,17 @@ map.on('zoomend', scheduleOverlayRefresh);
 // current visible area) until the 600ms-debounced refetch completes, clear
 // the field immediately so particles just stop drawing until fresh data for
 // the new view arrives — no visible currents beats visibly WRONG ones.
-map.on('movestart zoomstart', () => { if (showCurrents) currentFieldData = null; });
+// Also clear the canvas's actual pixels here, not just the field: the canvas
+// is a plain overlay appended to the map container (not a Leaflet-managed
+// pane), so it never gets the pan/zoom CSS transform the tiles do — its
+// already-painted trails just sit frozen in screen space through the zoom.
+// The per-frame destination-in fade (stepAndDrawParticles) would eventually
+// clear it, but only over ~40 frames, which reads as a lingering "shadow of
+// the last simulation" during and right after every zoom.
+map.on('movestart zoomstart', () => {
+  if (showCurrents) currentFieldData = null;
+  if (currentCtx) currentCtx.clearRect(0, 0, currentCanvas.width, currentCanvas.height);
+});
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
 function showSpinner(v,txt) {
