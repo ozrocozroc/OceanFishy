@@ -96,7 +96,11 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
    one flexible panel that absorbs any leftover height, scrolling internally
    via #marks-list so a long/expanded mark list never pushes the Conditions,
    Legend, or Live readings panels out of view. */
-#sb{position:absolute;top:10px;right:10px;bottom:10px;z-index:900;width:234px;display:flex;flex-direction:column;gap:8px;overflow:hidden;transition:bottom .2s ease}
+/* No CSS transition on bottom: it's now driven by JS (syncSidebarToForecastPanel)
+   and gets written multiple times per forecast open (loading-state height,
+   then real-content height) — animating between those in quick succession is
+   more likely to look janky/inconsistent than a plain instant snap. */
+#sb{position:absolute;top:10px;right:10px;bottom:10px;z-index:900;width:234px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
 #sb .panel{flex-shrink:0}
 .panel{background:rgba(18,28,46,.94);border:1px solid var(--bdrs);border-radius:8px;padding:11px 13px;backdrop-filter:blur(8px)}
 /* #sb #marks-panel (not just #marks-panel) so this outranks the "#sb .panel"
@@ -109,14 +113,21 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 #marks-list::-webkit-scrollbar-thumb{background:var(--bdrs);border-radius:3px}
 /* Forecast panel is full-width, bottom-docked, and sits above the sidebar in
    z-index (1100 vs 900) — without raising the sidebar's bottom edge to clear
-   it, opening a forecast simply hides whatever the panel's max-height (64vh)
-   covers, with no way to scroll to it. Raising the bottom edge leaves the
-   sidebar with only ~36vh, which usually isn't enough room for every panel
-   even with Known marks shrunk to its floor — so fall back to letting the
-   whole sidebar scroll in this compressed state (normally, with the forecast
-   closed, only #marks-list scrolls internally; this is specifically the
-   "not enough room at all" case). */
-#map.forecast-open #sb{bottom:calc(64vh + 16px);overflow-y:auto}
+   it, opening a forecast simply hides whatever the panel covers, with no way
+   to scroll to it. The actual bottom offset is set inline by JS (synced to
+   the forecast panel's real rendered height via ResizeObserver, see
+   syncSidebarToForecastPanel) rather than assumed here from max-height:64vh
+   — the panel is usually much shorter than its max-height, and reserving
+   the full 64vh unconditionally left a large dead gap between the sidebar
+   and the panel. Raising the bottom edge at all leaves less room for the
+   sidebar's panels than usual, so fall back to letting the whole sidebar
+   scroll here (normally, with the forecast closed, only #marks-list scrolls
+   internally; this is specifically the "not enough room at all" case) —
+   with the same themed scrollbar as #marks-list instead of the browser
+   default, which otherwise cuts into the panel's padding. */
+#map.forecast-open #sb{overflow-y:auto}
+#map.forecast-open #sb::-webkit-scrollbar{width:6px}
+#map.forecast-open #sb::-webkit-scrollbar-thumb{background:var(--bdrs);border-radius:3px}
 .pt{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:9px}
 #rv{font-size:28px;font-weight:700;line-height:1}
 #ru{font-size:12px;color:var(--mut);margin-left:2px}
@@ -402,7 +413,15 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   </div>
 
   <!-- Point forecast panel — Windy-style bottom-docked hourly timeline -->
-  <div id="forecast-panel" style="display:none;position:absolute;left:8px;right:8px;bottom:8px;z-index:1100;background:rgba(11,19,32,.97);border:1px solid var(--bdrs);border-radius:10px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.5);max-height:64vh;flex-direction:column">
+  <!-- left (not left+right) so the panel shrink-wraps to its actual grid
+       content width (nCols is capped by the real marine-data horizon, ~9-10
+       days, not by window width) instead of always stretching full-width and
+       leaving a large blank unused rectangle on wide screens once that grid
+       is narrower than the map. max-width caps it so a wide grid still
+       scrolls internally (#fc-grid-wrap has its own overflow:auto) rather
+       than overflowing the map; min-width keeps the header from cramping if
+       the real data horizon is unusually short. -->
+  <div id="forecast-panel" style="display:none;position:absolute;left:8px;bottom:8px;z-index:1100;background:rgba(11,19,32,.97);border:1px solid var(--bdrs);border-radius:10px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.5);max-height:64vh;max-width:calc(100% - 16px);min-width:min(480px, calc(100% - 16px));flex-direction:column">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--bdr);flex-shrink:0">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span style="font-size:13px;font-weight:700">Forecast</span>
@@ -1409,11 +1428,23 @@ function toggleForecastMode() {
   forecastModeActive = !forecastModeActive;
   document.getElementById('b-forecast').classList.toggle('on', forecastModeActive);
   map.getContainer().style.cursor = forecastModeActive ? 'crosshair' : '';
-  setStatus(forecastModeActive ? 'Forecast: click a point on the map (click again anywhere to update)' : '');
   if (!forecastModeActive) {
     document.getElementById('forecast-panel').style.display = 'none';
     resetForecastScrubToLive();
     updateCurrentLegendSize();
+    setStatus('');
+    return;
+  }
+  // A point is already selected (clickMark from a prior read-value click) —
+  // show its forecast immediately instead of making the user click again for
+  // a spot they've already picked. Still stays armed afterward so clicking
+  // elsewhere updates it, same as before.
+  if (clickMark) {
+    const {lat, lng} = clickMark.getLatLng();
+    openForecastPanel(lat, lng);
+    setStatus('Forecast: click elsewhere on the map to update');
+  } else {
+    setStatus('Forecast: click a point on the map (click again anywhere to update)');
   }
 }
 
@@ -1511,7 +1542,25 @@ function updateCurrentLegendSize() {
   const forecastOpen = document.getElementById('forecast-panel').style.display !== 'none';
   document.getElementById('current-legend').classList.toggle('compact', forecastOpen);
   document.getElementById('map').classList.toggle('forecast-open', forecastOpen);
+  syncSidebarToForecastPanel();
 }
+
+// Keeps #sb's bottom edge glued to the forecast panel's ACTUAL rendered
+// height rather than assuming its max-height:64vh — the panel is normally
+// much shorter than that (a fixed 11-row grid, not something that grows to
+// fill the max-height), so reserving the full 64vh unconditionally left a
+// large dead gap between the sidebar and the panel.
+const forecastPanelEl = document.getElementById('forecast-panel');
+const sbEl = document.getElementById('sb');
+function syncSidebarToForecastPanel() {
+  if (forecastPanelEl.style.display === 'none') { sbEl.style.bottom = ''; return; }
+  sbEl.style.bottom = (forecastPanelEl.getBoundingClientRect().height + 16) + 'px';
+}
+// A ResizeObserver (rather than calling syncSidebarToForecastPanel only from
+// updateCurrentLegendSize) keeps this correct across the
+// "Loading forecast…" -> populated-grid height change and window resizes,
+// without having to hook every place the panel's content might change.
+new ResizeObserver(syncSidebarToForecastPanel).observe(forecastPanelEl);
 
 async function openForecastPanel(lat, lng) {
   const panel = document.getElementById('forecast-panel');
@@ -1521,6 +1570,7 @@ async function openForecastPanel(lat, lng) {
     Math.abs(lat).toFixed(3) + (lat<0?'°S':'°N') + ' · ' + Math.abs(lng).toFixed(3) + (lng>0?'°E':'°W');
   document.getElementById('fc-body').innerHTML = '<div style="font-size:12px;color:var(--dim);padding:20px 0;text-align:center">Loading forecast…</div>';
   document.getElementById('fc-summary').innerHTML = '';
+  syncSidebarToForecastPanel();
 
   const myReqId = ++forecastReqId;
   try {
@@ -1536,6 +1586,7 @@ async function openForecastPanel(lat, lng) {
     if (myReqId !== forecastReqId) return;
     document.getElementById('fc-body').innerHTML =
       `<div style="font-size:12px;color:var(--dim);padding:20px 0;text-align:center">Forecast unavailable — ${err.message}</div>`;
+    syncSidebarToForecastPanel();
   }
 }
 
@@ -1690,6 +1741,7 @@ function renderForecastPanel(wx, marine) {
   // Scroll so "now" starts near the left edge of the visible timeline
   const wrap = document.getElementById('fc-grid-wrap');
   wrap.scrollLeft = Math.max(0, nowColIdx*colW - 20);
+  syncSidebarToForecastPanel();
 }
 
 function fcScrubTo(ci) {
