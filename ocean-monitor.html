@@ -220,16 +220,24 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   }
 
   /* Known marks (#marks-panel, flex:1 1 auto) absorbs the leftover height
-     within this 52vh cap and scrolls internally via #marks-list, same as
-     desktop — but unlike desktop's top+bottom-stretched sidebar, 52vh on a
+     within this 68vh cap and scrolls internally via #marks-list, same as
+     desktop — but unlike desktop's top+bottom-stretched sidebar, 68vh on a
      phone screen is often too little room for Conditions+Legend+Live-readings
      even with marks-panel shrunk to its floor, so — also same as desktop's
      forecast-open fallback — keep overflow-y:auto (not hidden) here so any
      genuine leftover overflow is still reachable by scrolling the drawer,
-     rather than silently clipped. */
+     rather than silently clipped.
+     max-height:68dvh (after the 68vh fallback) matters specifically here:
+     vh is based on the browser's LARGEST possible viewport (chrome
+     collapsed), not what's actually visible — on iOS Safari / Android
+     Chrome with their address bar shown, that overstates real available
+     height enough that the drawer's own bottom edge/border ends up hidden
+     behind the browser's UI, scrollable-but-never-actually-visible. dvh
+     tracks the real, current viewport instead. Unsupported browsers just
+     ignore the dvh line and keep the vh value from the line above. */
   #sb{
     position:absolute;left:0;right:0;bottom:0;top:auto;
-    width:auto;max-height:68vh;overflow-y:auto;
+    width:auto;max-height:68vh;max-height:68dvh;overflow-y:auto;
     border-radius:14px 14px 0 0;
     background:rgba(11,19,32,.97);
     padding:14px 10px calc(env(safe-area-inset-bottom,0px) + 10px);
