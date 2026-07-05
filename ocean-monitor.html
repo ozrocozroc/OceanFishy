@@ -148,6 +148,16 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 .mi{width:7px;height:7px;border-radius:50%;background:#ff8c6e;margin-right:6px;flex-shrink:0}
 .mn{font-size:12px;color:var(--mut);transition:color .1s}
 .md{font-size:11px;color:var(--dim)}
+/* Selected-mark highlight, mirrored between the map pin and its sidebar row
+   so picking a mark out of a dense cluster is unambiguous both places. */
+.mr.selected{background:rgba(232,168,58,.14);border-radius:4px}
+.mr.selected .mn{color:var(--txt);font-weight:600}
+@keyframes markPulse{
+  0%   {box-shadow:0 0 0 0 rgba(232,168,58,.6)}
+  70%  {box-shadow:0 0 0 9px rgba(232,168,58,0)}
+  100% {box-shadow:0 0 0 0 rgba(232,168,58,0)}
+}
+.mark-pin-selected{animation:markPulse 1.6s ease-out infinite;border-radius:50%}
 
 /* Known-marks group disclosures — replace the default browser summary marker
    (inconsistent styling, cramped against the label) with a themed chevron and
@@ -2170,10 +2180,8 @@ function jumpTo(key) {
   document.getElementById('s-depthd').textContent = r.depthd;
 }
 
-function flyMark(lat,lng,name,depth,sp) {
+function flyMark(lat,lng) {
   map.flyTo([lat,lng],11,{duration:1});
-  L.circleMarker([lat,lng],{radius:8,color:'#ff8c6e',weight:2,fillColor:'#ff8c6e',fillOpacity:.2})
-    .addTo(markGroup).bindTooltip(`<b>${name}</b><br>Depth: ${depth}<br>${sp}`,{direction:'top'}).openTooltip();
   // On mobile the marks list lives in the drawer — close it so the map/tooltip is visible
   document.getElementById('sb').classList.remove('open');
 }
@@ -2261,6 +2269,8 @@ function saveMarksToStorage() {
 let marks = loadMarks();
 let addingMark = false;
 let editingMarkId = null;
+let selectedMarkId = null; // highlighted on both the map pin and its sidebar row
+let markerLayerById = {}; // id -> Leaflet marker, rebuilt each renderMarkers()
 const marksLayerGroup = L.layerGroup().addTo(map);
 
 // Depth-derived color, matching the original convention: shallow inshore
@@ -2290,17 +2300,26 @@ function inferMarkIcon(m) {
 
 function renderMarkers() {
   marksLayerGroup.clearLayers();
+  markerLayerById = {};
   marks.forEach(m => {
     const col = markColor(m);
     const icon = inferMarkIcon(m);
-    L.marker([m.lat, m.lng], {
+    // Selected mark renders bigger, with a bright pulsing ring and raised
+    // above its neighbors — with many marks placed close together, the
+    // normal same-size/same-color pins made it impossible to tell which one
+    // a sidebar click had actually landed on.
+    const selected = m.id === selectedMarkId;
+    const size = selected ? 30 : 22;
+    const layer = L.marker([m.lat, m.lng], {
       icon: L.divIcon({
-        className: 'mark-pin',
-        html: `<div style="width:22px;height:22px;border-radius:50%;background:${col}2e;border:1.5px solid ${col};display:flex;align-items:center;justify-content:center;font-size:12px;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.4)">${icon}</div>`,
-        iconSize: [22, 22], iconAnchor: [11, 11],
+        className: selected ? 'mark-pin mark-pin-selected' : 'mark-pin',
+        html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${col}2e;border:${selected?3:1.5}px solid ${selected?'#e8a83a':col};display:flex;align-items:center;justify-content:center;font-size:${selected?15:12}px;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.4)">${icon}</div>`,
+        iconSize: [size, size], iconAnchor: [size/2, size/2],
       }),
+      zIndexOffset: selected ? 1000 : 0,
     }).addTo(marksLayerGroup)
       .bindTooltip(`<b>${icon} ${m.name}</b><br>Depth: ${m.depth}<br>${m.species}`, {direction:'top'});
+    markerLayerById[m.id] = layer;
   });
 }
 
@@ -2332,7 +2351,7 @@ function renderMarksList() {
     <details open>
       <summary style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;cursor:pointer;padding:4px 0">${g} (${byGroup[g].length})</summary>
       ${byGroup[g].map(m => `
-        <div class="mr">
+        <div class="mr${m.id === selectedMarkId ? ' selected' : ''}">
           <div style="display:flex;align-items:center;flex:1;cursor:pointer;min-width:0" onclick="markRowClick('${m.id}')">
             <span class="mi"></span><span class="mn" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.name}</span>
           </div>
@@ -2345,7 +2364,13 @@ function renderMarksList() {
 
 function flyToMark(id) {
   const m = marks.find(x => x.id === id);
-  if (m) flyMark(m.lat, m.lng, m.name, m.depth, m.species);
+  if (!m) return;
+  selectedMarkId = id;
+  renderMarkers();
+  renderMarksList();
+  flyMark(m.lat, m.lng);
+  const layer = markerLayerById[id];
+  if (layer) layer.openTooltip();
 }
 
 // Normally clicking a mark just pans the map there. With the top "✎ Edit"
