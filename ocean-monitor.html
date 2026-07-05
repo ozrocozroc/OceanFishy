@@ -18,11 +18,15 @@ html,body{height:100%;font-family:-apple-system,'Segoe UI',sans-serif;background
 #app{display:flex;flex-direction:column;height:100vh}
 
 /* Header */
-#hdr{display:flex;align-items:center;justify-content:space-between;padding:0 14px;height:46px;flex-shrink:0;background:var(--surf);border-bottom:1px solid var(--bdr);z-index:1000}
-.logo{font-size:15px;font-weight:700;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+/* Date bar (#datebar) lives inside #hdr now, filling the space the removed
+   "SST · Chlorophyll · Altimetry" subtitle used to take — folding it into
+   the header row instead of its own bar cuts the toolbar stack from 3 rows
+   to 2. flex:1 + min-width:0 lets it claim the middle space while still
+   allowing overflow-x scroll if the date chips don't all fit. */
+#hdr{display:flex;align-items:center;gap:16px;padding:0 14px;height:46px;flex-shrink:0;background:var(--surf);border-bottom:1px solid var(--bdr);z-index:1000}
+.logo{font-size:15px;font-weight:700;letter-spacing:-.02em;display:flex;align-items:center;gap:8px;flex-shrink:0}
 .logo span{color:var(--acc)}
-.tag{font-size:11px;color:var(--dim);border-left:1px solid var(--bdrs);padding-left:10px;margin-left:10px}
-.live{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:5px}
+.live{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:5px;flex-shrink:0}
 .dot{width:6px;height:6px;border-radius:50%;background:#3dc47e;animation:blink 2.5s infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt);border-radius:var(--r);padding:4px 8px;font-size:12px;font-family:inherit;cursor:pointer;outline:none}
@@ -73,9 +77,9 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 .bdot.sst{background:var(--sst)}.bdot.chl{background:var(--chl)}.bdot.alt{background:var(--alt)}.bdot.depth{background:#3a7ca5}
 
 /* Date bar */
-#datebar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surf);border-bottom:1px solid var(--bdr);flex-shrink:0;overflow-x:auto;z-index:998}
+#datebar{display:flex;align-items:center;gap:8px;flex:1;min-width:0;overflow-x:auto}
 #datebar::-webkit-scrollbar{display:none}
-.dbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.dbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;flex-shrink:0}
 #date-input{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt);border-radius:var(--r);padding:4px 8px;font-size:12px;font-family:inherit;cursor:pointer;outline:none;color-scheme:dark}
 .date-chip{padding:4px 9px;border-radius:var(--r);border:1px solid var(--bdrs);background:transparent;font-size:11px;color:var(--mut);cursor:pointer;transition:all .12s;white-space:nowrap;font-family:inherit;text-align:center}
 .date-chip:hover{background:var(--surf2);color:var(--txt)}
@@ -128,6 +132,10 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 #map.forecast-open #sb{overflow-y:auto}
 #map.forecast-open #sb::-webkit-scrollbar{width:6px}
 #map.forecast-open #sb::-webkit-scrollbar-thumb{background:var(--bdrs);border-radius:3px}
+/* Conditions auto-collapses while forecast is open (see updateCurrentLegendSize)
+   to free real room, so it's worth guaranteeing Known marks actually uses it —
+   otherwise it stays clamped to the bare 80px floor and shows zero rows. */
+#map.forecast-open #sb #marks-panel{min-height:180px}
 .pt{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:9px}
 #rv{font-size:28px;font-weight:700;line-height:1}
 #ru{font-size:12px;color:var(--mut);margin-left:2px}
@@ -195,7 +203,13 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 #sb-toggle{display:none}
 
 @media(max-width:640px){
-  .tag{display:none}
+  /* #datebar now shares the header row with the logo, region select, and
+     live indicator (previously its own full-width row) — on a narrow screen
+     there isn't room for all of it, so drop the least essential bits first:
+     the "DATA DATE" label (chips are self-explanatory) and the decorative
+     NOAA/NASA live indicator, prioritizing the date chips and region picker. */
+  .dbl{display:none}
+  .live{display:none}
 
   #sb-toggle{
     display:flex;align-items:center;justify-content:center;gap:5px;
@@ -205,15 +219,25 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
     box-shadow:0 2px 10px rgba(0,0,0,.4);font-size:13px;cursor:pointer;
   }
 
+  /* Known marks (#marks-panel, flex:1 1 auto) absorbs the leftover height
+     within this 52vh cap and scrolls internally via #marks-list, same as
+     desktop — but unlike desktop's top+bottom-stretched sidebar, 52vh on a
+     phone screen is often too little room for Conditions+Legend+Live-readings
+     even with marks-panel shrunk to its floor, so — also same as desktop's
+     forecast-open fallback — keep overflow-y:auto (not hidden) here so any
+     genuine leftover overflow is still reachable by scrolling the drawer,
+     rather than silently clipped. */
   #sb{
     position:absolute;left:0;right:0;bottom:0;top:auto;
-    width:auto;max-height:52vh;overflow-y:auto;
+    width:auto;max-height:68vh;overflow-y:auto;
     border-radius:14px 14px 0 0;
     background:rgba(11,19,32,.97);
     padding:14px 10px calc(env(safe-area-inset-bottom,0px) + 10px);
     transform:translateY(100%);transition:transform .25s ease;
     z-index:940;
   }
+  #sb::-webkit-scrollbar{width:6px}
+  #sb::-webkit-scrollbar-thumb{background:var(--bdrs);border-radius:3px}
   #sb::before{
     content:'';position:sticky;top:-4px;display:block;
     width:36px;height:4px;border-radius:2px;background:var(--bdrs);
@@ -221,6 +245,13 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   }
   #sb.open{transform:translateY(0)}
   #sb .panel{backdrop-filter:none}
+  /* Even at 68vh, Readout+Legend+Live-readings+Conditions combined routinely
+     exceed the drawer's cap on a phone screen, so Known marks (the panel
+     with by far the most content) would otherwise get squeezed to its bare
+     80px floor every time — guarantee it real usable height here; reaching
+     Conditions/Legend above it just means scrolling the drawer up, same as
+     desktop's forecast-open case. */
+  #sb #marks-panel{min-height:220px}
 
   /* Prevent the always-on-top Leaflet zoom control from sitting over the
      bottom-sheet sidebar when it's open — pinch/scroll zoom still works. */
@@ -238,7 +269,14 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
       <circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-2.5 3-2.5 6 0 9s2.5 6 0 9M12 3c2.5 3 2.5 6 0 9s-2.5 6 0 9"/>
     </svg>
     <div class="logo" style="margin-left:8px">Ocean<span>Fishy</span></div>
-    <span class="tag">SST · Chlorophyll · Altimetry — Australian Waters</span>
+  </div>
+  <!-- Folded in from the old standalone #datebar row (see its CSS comment)
+       to fill the space freed by removing the tag/subtitle and cut the
+       toolbar stack from 3 rows to 2. -->
+  <div id="datebar">
+    <span class="dbl">Data date</span>
+    <div id="date-chips" style="display:flex;gap:4px;flex-shrink:0"></div>
+    <span id="data-avail"></span>
   </div>
   <div style="display:flex;align-items:center;gap:8px">
     <select id="reg" class="hsel" onchange="jumpTo(this.value)">
@@ -287,13 +325,6 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <button class="lb contours" id="b-contours" onclick="toggleContours()" title="Overlay real SLA contour lines on any layer, for comparison">〰 SLA contours</button>
   <button class="lb ruler" id="b-ruler" onclick="toggleRuler()">📏 Ruler</button>
   <button class="lb" id="b-ruler-clear" onclick="clearRuler()" style="display:none">✕ Clear</button>
-</div>
-
-<!-- Date bar -->
-<div id="datebar">
-  <span class="dbl">Data date</span>
-  <div id="date-chips" style="display:flex;gap:4px;flex-shrink:0"></div>
-  <span id="data-avail"></span>
 </div>
 
 <!-- Map -->
@@ -1524,15 +1555,38 @@ function weatherIcon(code, isDay) {
   return '·';
 }
 
+// One shared Windy-style intensity palette (calm green -> yellow -> orange ->
+// red -> purple), reused across every forecast row via its own band
+// thresholds — "this cell is red" means the same relative intensity in the
+// Wind row as in Wave/Swell/Power/Temp, rather than each row inventing its
+// own unrelated color language.
+const INTENSITY_COLORS = ['transparent','#4d7a3d','#6fae4f','#a9c93f','#d9c93f','#e8a83a','#e8683a','#e8433a','#d83a6b','#b83aa0'];
+function bandColor(value, bands) {
+  if (value == null) return 'transparent';
+  let i = 0;
+  while (i < bands.length && value >= bands[i]) i++;
+  return INTENSITY_COLORS[i];
+}
 // Rough knots→color bands matching Windy's wind-strength palette — a visual
 // cue for "windy" columns while scanning the timeline, not a precise scale.
 function windColor(kt) {
-  if (kt == null) return 'transparent';
-  const bands = [6,12,17,21,25,29,33,38,45];
-  const colors = ['transparent','#4d7a3d','#6fae4f','#a9c93f','#d9c93f','#e8a83a','#e8683a','#e8433a','#d83a6b','#b83aa0'];
-  let i = 0;
-  while (i < bands.length && kt >= bands[i]) i++;
-  return colors[i];
+  return bandColor(kt, [6,12,17,21,25,29,33,38,45]);
+}
+// Same intensity palette, thresholds tuned to each metric's own natural
+// range rather than reusing wind's knot bands.
+function waveColor(m) { return bandColor(m, [0.5,1,1.5,2,2.5,3,4,5]); } // wave/swell height (m)
+function powerColor(kw) { return bandColor(kw, [2,5,10,15,20,30,45,65]); } // wave power (kW/m)
+function tempColor(c) { return bandColor(c, [12,16,20,24,27,30,33,36]); } // air temp (°C)
+
+// Tide has no "more intense = more extreme" single direction — it's a
+// diverging value around 0 (below vs. above mean sea level), so a banded
+// one-way palette doesn't fit. Blends toward blue (low) or orange (high)
+// with opacity scaled by magnitude, fading to transparent near 0.
+function tideColor(m) {
+  if (m == null) return 'transparent';
+  const t = Math.min(1, Math.abs(m) / 1.2);
+  const rgb = m < 0 ? '58,130,196' : '232,108,58';
+  return `rgba(${rgb},${(0.10 + t*0.55).toFixed(2)})`;
 }
 
 // ── Point forecast panel — Windy-style hourly timeline with a draggable
@@ -1548,11 +1602,29 @@ let fcState = null; // {wx, marine, colTimes, colW, labelW, curCol}
 // CSS) so the forecast panel — full-width and above the sidebar in z-index —
 // never covers it; without this the bottom of the sidebar was simply
 // inaccessible while a forecast was open.
+let sbForecastOpenPrev = false;
+let sbConditionsWasExpanded = false;
 function updateCurrentLegendSize() {
   const forecastOpen = document.getElementById('forecast-panel').style.display !== 'none';
   document.getElementById('current-legend').classList.toggle('compact', forecastOpen);
   document.getElementById('map').classList.toggle('forecast-open', forecastOpen);
   syncSidebarToForecastPanel();
+
+  // On a short window the sidebar has barely any room left once the forecast
+  // panel claims its space — Known marks (the flexible panel) would shrink
+  // to its bare floor and show zero visible rows despite the sidebar's own
+  // scroll fallback (the OTHER panels are still fighting for their full
+  // natural height above it). Auto-collapsing Conditions frees real space
+  // for marks; only act on an actual open/close transition (this function
+  // also gets called while forecast state hasn't changed, e.g. from
+  // toggleCurrents), and restore whatever the user's own choice was.
+  if (forecastOpen && !sbForecastOpenPrev) {
+    sbConditionsWasExpanded = !isConditionsCollapsed();
+    if (sbConditionsWasExpanded) setConditionsCollapsed(true);
+  } else if (!forecastOpen && sbForecastOpenPrev && sbConditionsWasExpanded) {
+    setConditionsCollapsed(false);
+  }
+  sbForecastOpenPrev = forecastOpen;
 }
 
 // Keeps #sb's bottom edge glued to the forecast panel's ACTUAL rendered
@@ -1681,7 +1753,7 @@ function renderForecastPanel(wx, marine) {
     iconRow += `<div style="${nbg}text-align:center;font-size:15px;padding:2px 0">${weatherIcon(code, isDay)}</div>`;
 
     const t = wx.hourly.temperature_2m[hi];
-    tempRow += `<div style="${nbg}text-align:center;font-size:11px;font-weight:600;padding:2px 0">${t!=null?Math.round(t)+'°':'–'}</div>`;
+    tempRow += `<div style="background:${tempColor(t)};text-align:center;font-size:11px;font-weight:600;padding:2px 0">${t!=null?Math.round(t)+'°':'–'}</div>`;
 
     let rainSum = 0;
     for (let k = hi; k < Math.min(hi+STEP, times.length); k++) { const p = wx.hourly.precipitation?.[k]; if (p!=null) rainSum += p; }
@@ -1699,22 +1771,22 @@ function renderForecastPanel(wx, marine) {
     pressRow += `<div style="${nbg}text-align:center;font-size:10px;color:var(--dim);padding:2px 0">${p!=null?Math.round(p):'–'}</div>`;
 
     const wh = marine.hourly.wave_height[hi], wavedir = marine.hourly.wave_direction?.[hi];
-    waveRow += `<div style="${nbg}text-align:center;font-size:10px;padding:2px 0">
+    waveRow += `<div style="background:${waveColor(wh)};text-align:center;font-size:10px;padding:2px 0">
       <div style="line-height:1">${dirArrow(wavedir,10)}</div>
       <div>${wh!=null?wh.toFixed(1):'–'}</div>
     </div>`;
 
     const sh = marine.hourly.swell_wave_height[hi], sp = marine.hourly.swell_wave_period[hi], sdir = marine.hourly.swell_wave_direction?.[hi];
-    swellRow += `<div style="${nbg}text-align:center;font-size:9px;padding:2px 0">
+    swellRow += `<div style="background:${waveColor(sh)};text-align:center;font-size:9px;padding:2px 0">
       <div style="line-height:1">${dirArrow(sdir,10)}</div>
       <div>${sh!=null?sh.toFixed(1)+'/'+(sp!=null?Math.round(sp):'–'):'–'}</div>
     </div>`;
 
     const pw = wavePower[hi];
-    powerRow += `<div style="${nbg}text-align:center;font-size:9px;color:var(--dim);padding:2px 0">${pw!=null?Math.round(pw):'–'}</div>`;
+    powerRow += `<div style="background:${powerColor(pw)};text-align:center;font-size:9px;padding:2px 0">${pw!=null?Math.round(pw):'–'}</div>`;
 
     const tv = tideVals[hi];
-    tideRow += `<div style="${nbg}text-align:center;font-size:10px;padding:2px 0">${tv!=null?tv.toFixed(1):'–'}</div>`;
+    tideRow += `<div style="background:${tideColor(tv)};text-align:center;font-size:10px;padding:2px 0">${tv!=null?tv.toFixed(1):'–'}</div>`;
   });
 
   const gridWidth = labelW + nCols*colW;
@@ -2381,11 +2453,15 @@ function markRowClick(id) {
   if (marksEditMode) openEditMark(id); else flyToMark(id);
 }
 
+function setConditionsCollapsed(collapse) {
+  document.getElementById('cond-body').style.display = collapse ? 'none' : '';
+  document.getElementById('cond-chevron').style.transform = collapse ? 'rotate(-90deg)' : '';
+}
+function isConditionsCollapsed() {
+  return document.getElementById('cond-body').style.display === 'none';
+}
 function toggleConditions() {
-  const body = document.getElementById('cond-body');
-  const collapsed = body.style.display === 'none';
-  body.style.display = collapsed ? '' : 'none';
-  document.getElementById('cond-chevron').style.transform = collapsed ? '' : 'rotate(-90deg)';
+  setConditionsCollapsed(!isConditionsCollapsed());
 }
 
 function toggleMarksEditMode() {
