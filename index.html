@@ -1944,6 +1944,15 @@ function updateAvailNote(cfg) {
 // composite). Every chip this produces is therefore a genuinely valid,
 // directly-requestable date — no hidden offset applied later that could make
 // the displayed label disagree with what's actually rendered.
+//
+// The stepping itself (setUTCDate) and the `iso` value used to actually
+// query/select data both stay UTC-based always — ERDDAP's dataset dates are
+// UTC calendar days, and changing what gets requested would make the chip
+// silently disagree with what loads. Only the LABEL (weekday + day/month
+// shown to the user) is read via local getters (getDate/getDay/getMonth
+// instead of their UTC equivalents), so someone in a timezone where a UTC
+// midnight timestamp falls on a different local calendar day sees the
+// weekday/date they'd expect from their own calendar, not UTC's.
 function buildDateChips(anchorIso, stepDays) {
   stepDays = stepDays || 1;
   const wrap = document.getElementById('date-chips');
@@ -1958,12 +1967,13 @@ function buildDateChips(anchorIso, stepDays) {
     d.setUTCDate(d.getUTCDate() - i * stepDays);
     const iso = d.toISOString().slice(0,10);
     const isLatest = (i === 0);
-    const label = isLatest ? 'Latest' : days[d.getUTCDay()];
-    const dateStr = d.getUTCDate() + ' ' + months[d.getUTCMonth()];
+    const label = isLatest ? 'Latest' : days[d.getDay()];
+    const dateStr = d.getDate() + ' ' + months[d.getMonth()];
 
     const btn = document.createElement('button');
     btn.className = 'date-chip' + (isLatest ? ' on' : '');
     btn.dataset.date = iso;
+    btn.title = 'Dataset date (UTC): ' + iso;
     btn.innerHTML = `<span style="font-size:11px;font-weight:600;display:block;line-height:1.2">${label}</span><span style="font-size:10px;opacity:.7;display:block;line-height:1.2">${dateStr}</span>`;
     btn.style.padding = '4px 9px';
     btn.style.lineHeight = '1';
