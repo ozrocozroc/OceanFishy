@@ -1427,6 +1427,11 @@ async function updateSwell(bounds, timeIso) {
   }
 
   const {lats, lons} = sampleGrid(bounds, WIND_GRID);
+  // Stays on the default "best_match" model — models=ecmwf_wam (used for the
+  // Forecast panel's total wave height, see openForecastPanel) only provides
+  // the combined sea state, not the swell decomposition this overlay needs;
+  // confirmed directly against the API that swell_wave_* comes back null
+  // under that model, which would silently blank out every arrow here.
   const url = timeIso
     ? `https://marine-api.open-meteo.com/v1/marine?latitude=${lats.join(',')}&longitude=${lons.join(',')}&hourly=swell_wave_height,swell_wave_direction,swell_wave_period&forecast_days=16&timezone=UTC`
     : `https://marine-api.open-meteo.com/v1/marine?latitude=${lats.join(',')}&longitude=${lons.join(',')}&current=swell_wave_height,swell_wave_direction,swell_wave_period`;
@@ -1684,13 +1689,27 @@ async function openForecastPanel(lat, lng) {
 
   const myReqId = ++forecastReqId;
   try {
-    const [wx, marine] = await Promise.all([
+    // Total wave height/period/direction and swell+tide are fetched
+    // separately because they need DIFFERENT models: models=ecmwf_wam pins
+    // the same wave model Windy uses (their panel labels it explicitly)
+    // instead of Open-Meteo's auto "best_match", which measurably ran wave
+    // height/power ~15-30% low here (confirmed by comparing both against
+    // Windy's own forecast for the same point) — but ecmwf_wam only provides
+    // the combined sea state, not the swell decomposition or tide (confirmed
+    // directly against the API: both come back null under that model), so
+    // swell and tide have to stay on the default model. The map's swell
+    // overlay (updateSwell) needs the decomposition too, so it stays on the
+    // default model entirely — there's no ecmwf_wam benefit to pin there.
+    const [wx, marineWave, marineSwellTide] = await Promise.all([
       fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=temperature_2m,precipitation,weather_code,is_day,pressure_msl,wind_speed_10m,wind_gusts_10m,wind_direction_10m&forecast_days=16&timezone=UTC`).then(r=>r.json()),
-      fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_direction,swell_wave_period,sea_level_height_msl&forecast_days=16&timezone=UTC`).then(r=>r.json()),
+      fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=wave_height,wave_period,wave_direction&forecast_days=16&timezone=UTC&models=ecmwf_wam`).then(r=>r.json()),
+      fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=swell_wave_height,swell_wave_direction,swell_wave_period,sea_level_height_msl&forecast_days=16&timezone=UTC`).then(r=>r.json()),
     ]);
     if (myReqId !== forecastReqId) return;
     if (wx.error) throw new Error(wx.reason || 'weather API error');
-    if (marine.error) throw new Error(marine.reason || 'marine API error');
+    if (marineWave.error) throw new Error(marineWave.reason || 'marine API error');
+    if (marineSwellTide.error) throw new Error(marineSwellTide.reason || 'marine API error');
+    const marine = { hourly: { ...marineWave.hourly, ...marineSwellTide.hourly } };
     renderForecastPanel(wx, marine);
   } catch (err) {
     if (myReqId !== forecastReqId) return;
@@ -1764,7 +1783,7 @@ function renderForecastPanel(wx, marine) {
   // at a glance across the whole row.
   const nightBg = (isDay) => isDay === 0
     ? 'background:rgba(4,7,16,.6);'
-    : 'background:rgba(255,214,120,.09);';
+    : 'background:rgba(255,214,120,.2);';
 
   let dayRow = label('');
   dayGroups.forEach(g => {
