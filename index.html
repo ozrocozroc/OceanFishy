@@ -298,7 +298,6 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   </div>
   <div style="display:flex;align-items:center;gap:8px">
     <select id="reg" class="hsel" onchange="jumpTo(this.value)">
-      <option value="shellcove">Shell Cove / Illawarra</option>
       <option value="sydney">Sydney Offshore</option>
       <option value="brisbane">Brisbane / Moreton</option>
       <option value="cairns">Cairns / Coral Sea</option>
@@ -411,10 +410,10 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 
     <div class="panel">
       <div class="pt" id="cond-toggle" onclick="toggleConditions()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center">
-        <span>Conditions — <span id="rname">Shell Cove</span> <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">(regional estimates)</span></span>
-        <span id="cond-chevron" style="transition:transform .15s ease;flex-shrink:0;margin-left:6px">▾</span>
+        <span>Conditions — <span id="rname">Sydney Offshore</span> <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">(regional estimates)</span></span>
+        <span id="cond-chevron" style="transition:transform .15s ease;flex-shrink:0;margin-left:6px;transform:rotate(-90deg)">▾</span>
       </div>
-      <div id="cond-body">
+      <div id="cond-body" style="display:none">
         <div class="sr">
           <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--sst);display:inline-block;margin-right:5px"></span>SST</span>
           <div style="text-align:right"><div class="sv" id="s-sst">—</div><div class="sd up" id="s-sstd"></div></div>
@@ -633,7 +632,6 @@ const LAYERS = {
 };
 
 const REGIONS = {
-  shellcove:   {lat:-34.58,lng:150.87,zoom:9, name:'Shell Cove',        sst:'19.2°C',sstd:'↑1.1° vs avg',chl:'0.31 mg/m³',chld:'↓0.05',alt:'+7 cm',altd:'↑3cm vs mean', depth:'~380m',depthd:'Kiama Canyon'},
   sydney:      {lat:-33.85,lng:151.5, zoom:8, name:'Sydney Offshore',   sst:'20.1°C',sstd:'↑0.8°',       chl:'0.24 mg/m³',chld:'↓0.02',alt:'+4 cm',altd:'↑2cm', depth:'~800m',depthd:'Sydney Canyon'},
   brisbane:    {lat:-27.5, lng:154.2, zoom:7, name:'Brisbane / Moreton',sst:'24.8°C',sstd:'↑1.4°',       chl:'0.18 mg/m³',chld:'—',    alt:'+9 cm',altd:'↑5cm', depth:'~200m',depthd:'Moreton shelf edge'},
   cairns:      {lat:-16.9, lng:147.5, zoom:7, name:'Cairns / Coral Sea',sst:'28.4°C',sstd:'↑0.5°',       chl:'0.12 mg/m³',chld:'—',    alt:'+11 cm',altd:'↑4cm', depth:'~40m',depthd:'Great Barrier Reef shelf'},
@@ -665,8 +663,8 @@ function todayStr() {
 
 // ── Map — standard Web Mercator ───────────────────────────────────────────────
 const map = L.map('map', {
-  center: [-34.58, 151.15],
-  zoom: 9,
+  center: [-33.85, 151.5],
+  zoom: 8,
   zoomControl: true,
   attributionControl: true,
 });
@@ -2833,7 +2831,7 @@ function clearRuler() {
 buildBase('sat');
 buildDateChips(todayStr(), 1); // placeholder until useLatestAvailableDate() confirms the real dates
 updateLegend();
-jumpTo('shellcove');
+jumpTo('sydney');
 updateAvailNote(null); // curLayer defaults to 'off' — no data-availability note to show
 useLatestAvailableDate();
 renderMarkers();
