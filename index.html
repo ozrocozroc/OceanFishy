@@ -220,13 +220,9 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   .dbl{display:none}
   .live{display:none}
 
-  #sb-toggle{
-    display:flex;align-items:center;justify-content:center;gap:5px;
-    position:absolute;bottom:14px;right:12px;z-index:950;
-    height:36px;padding:0 14px;border-radius:18px;
-    background:rgba(18,28,46,.92);color:var(--txt);border:1px solid var(--bdrs);
-    box-shadow:0 2px 10px rgba(0,0,0,.4);font-size:13px;cursor:pointer;
-  }
+  /* Now a normal .lb toolbar button living in #lbar (Tools group) instead of
+     a floating pill over the map — just needs to actually show up here. */
+  #sb-toggle{display:flex}
 
   /* Known marks (#marks-panel, flex:1 1 auto) absorbs the leftover height
      within this 68vh cap and scrolls internally via #marks-list, same as
@@ -347,6 +343,13 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <button class="lb contours" id="b-contours" onclick="toggleContours()" title="Overlay real SLA contour lines on any layer, for comparison">〰 SLA contours</button>
   <button class="lb ruler" id="b-ruler" onclick="toggleRuler()">📏 Ruler</button>
   <button class="lb" id="b-ruler-clear" onclick="clearRuler()" style="display:none">✕ Clear</button>
+  <!-- Mobile-only sidebar drawer toggle. Used to float over the map (see
+       #sb-toggle CSS) which, being a descendant of #map/the Leaflet
+       container, bubbled its clicks up to map.on('click') and placed a
+       spurious SST/Chl/SLA reading marker under it every time it was
+       pressed. Living here in the toolbar instead — a sibling of #map, not
+       a child — sidesteps that entirely, not just visually relocates it. -->
+  <button class="lb" id="sb-toggle" onclick="toggleSidebar()" aria-label="Toggle info panel">ℹ Info</button>
 </div>
 
 <!-- Map -->
@@ -366,9 +369,6 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
     </div>
     <div class="cl-note" style="color:var(--dim)">Live only — no forecast for currents</div>
   </div>
-
-  <!-- Mobile-only drawer toggle -->
-  <button id="sb-toggle" onclick="toggleSidebar()" aria-label="Toggle info panel">ℹ Info</button>
 
   <!-- Sidebar -->
   <div id="sb">
