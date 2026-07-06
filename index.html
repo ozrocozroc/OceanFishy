@@ -655,9 +655,14 @@ let clickMark    = null;
 let activeProbe  = null;
 
 function todayStr() {
-  // Use 2 days ago as "today" — satellite data has ~1-2 day lag
-  const d = new Date();
-  d.setDate(d.getDate() - 2);
+  // Use 2 days ago as "today" — satellite data has ~1-2 day lag. Subtract
+  // via absolute milliseconds (not local setDate(), which operates on the
+  // browser's LOCAL calendar day) so this is timezone-independent — the
+  // old version, combined with toISOString()'s UTC serialization, could
+  // land an extra day further back than intended for anyone in a
+  // positive-UTC-offset timezone checking before their local UTC-midnight
+  // crossing (e.g. before ~10am AEST in Sydney).
+  const d = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
   return d.toISOString().slice(0,10);
 }
 
@@ -1234,7 +1239,7 @@ async function updateCurrents(dateIso, bounds) {
     if (rows.length && rows[0][0]) {
       const actualDate = rows[0][0].slice(0, 10);
       if (actualDate !== curDate) {
-        setStatus(`Currents: latest available is ${actualDate} (UTC) — ${curDate} not yet published for this dataset`);
+        setStatus(`Currents: latest available is ${actualDate} (UTC) — ${curDate} (UTC) not yet published for this dataset`);
       }
     }
     const latSet = [...new Set(rows.map(r => r[1]))].sort((a,b) => a - b);
@@ -2103,8 +2108,11 @@ async function updateLiveReadings(lat, lng) {
   const ls = Math.abs(lat).toFixed(3)+(lat<0?'°S':'°N');
   const ms = Math.abs(lng).toFixed(3)+(lng>0?'°E':'°W');
 
-  // Update coordinate display
-  document.getElementById('live-coord').textContent = ls + ' · ' + ms + ' · ' + curDate;
+  // Update coordinate display. curDate is the satellite dataset's own UTC
+  // calendar date (see useLatestAvailableDate) — labeled explicitly so it's
+  // never read as "today" in the viewer's own timezone, the same real gap
+  // that prompted labeling the date chips and forecast panel times earlier.
+  document.getElementById('live-coord').textContent = ls + ' · ' + ms + ' · ' + curDate + ' (UTC)';
   document.getElementById('live-note').textContent = '';
 
   // Populate simulated values for SST / CHL immediately (altimetry is fetched
@@ -2132,7 +2140,7 @@ async function updateLiveReadings(lat, lng) {
     document.getElementById('rpt').textContent = cfg.label;
     document.getElementById('rpc').innerHTML =
       `<div id="rv">${v.val}<span id="ru"> ${v.unit}</span></div>
-       <div id="rc">${ls} · ${ms} · ${curDate}</div>
+       <div id="rc">${ls} · ${ms} · ${curDate} (UTC)</div>
        <div id="rsub">${v.note.replace(/\n/g,'<br>')}</div>`;
   }
 
@@ -2153,7 +2161,7 @@ async function updateLiveReadings(lat, lng) {
         document.getElementById('rpt').textContent = LAYERS.alt.label;
         document.getElementById('rpc').innerHTML =
           `<div id="rv">${cmStr}<span id="ru"> cm</span></div>
-           <div id="rc">${ls} · ${ms} · ${curDate}</div>
+           <div id="rc">${ls} · ${ms} · ${curDate} (UTC)</div>
            <div id="rsub">${slaNote(cm)}</div>`;
       }
     }
