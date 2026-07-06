@@ -1722,10 +1722,18 @@ function renderForecastPanel(wx, marine) {
   const validTideVals = tideVals.filter(v => v != null);
   const tideDatum = validTideVals.length ? Math.min(...validTideVals) : 0;
 
-  // Group columns by calendar day for the header row
+  // Group columns by LOCAL calendar day for the header row — grouping by the
+  // UTC date (times[hi].slice(0,10)) would split/merge day boundaries at the
+  // wrong hour for the viewer (e.g. 10PM UTC is already the next morning in
+  // Sydney), so an hour would show under the wrong day header. localDayKey
+  // reads the browser's local Y-M-D for each hourly timestamp instead.
+  const localDayKey = (isoZ) => {
+    const dt = new Date(isoZ + 'Z');
+    return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+  };
   const dayGroups = [];
   colTimes.forEach((hi, ci) => {
-    const day = times[hi].slice(0,10);
+    const day = localDayKey(times[hi]);
     if (!dayGroups.length || dayGroups[dayGroups.length-1].day !== day) dayGroups.push({day, count: 0});
     dayGroups[dayGroups.length-1].count++;
   });
@@ -1747,8 +1755,12 @@ function renderForecastPanel(wx, marine) {
 
   let dayRow = label('');
   dayGroups.forEach(g => {
-    const d = new Date(g.day + 'T00:00:00Z');
-    dayRow += `<div style="grid-column:span ${g.count};font-size:13px;font-weight:600;padding:7px 0 7px 4px;border-left:1px solid var(--bdr)">${dowFull[d.getUTCDay()]} ${d.getUTCDate()}</div>`;
+    // No 'Z'/time suffix: g.day is already local Y-M-D (see localDayKey), so
+    // this constructs midnight in the BROWSER's local timezone directly —
+    // no further conversion needed to read the correct local weekday/date.
+    const [gy, gm, gday] = g.day.split('-').map(Number);
+    const d = new Date(gy, gm - 1, gday);
+    dayRow += `<div style="grid-column:span ${g.count};font-size:13px;font-weight:600;padding:7px 0 7px 4px;border-left:1px solid var(--bdr)">${dowFull[d.getDay()]} ${d.getDate()}</div>`;
   });
 
   let hourRow = label('Hour'), iconRow = label('Weather'), tempRow = label('Temp °C'),
@@ -1768,7 +1780,7 @@ function renderForecastPanel(wx, marine) {
   colTimes.forEach((hi, ci) => {
     const d = new Date(times[hi] + 'Z');
     if (d.getTime() <= nowMs) nowColIdx = ci;
-    const h = d.getUTCHours();
+    const h = d.getHours();
     const hourLabel = h===0 ? '12A' : h<12 ? h+'A' : h===12 ? '12P' : (h-12)+'P';
     const isDay = wx.hourly.is_day ? wx.hourly.is_day[hi] : 1;
     const nbg = nightBg(isDay);
@@ -1820,7 +1832,7 @@ function renderForecastPanel(wx, marine) {
 
   const tideFooter = extremes.length ? extremes.map(e => {
     const d = new Date(e.time + 'Z');
-    const when = d.getUTCDate() + '/' + (d.getUTCMonth()+1) + ' ' + String(d.getUTCHours()).padStart(2,'0') + ':00 UTC';
+    const when = d.getDate() + '/' + (d.getMonth()+1) + ' ' + String(d.getHours()).padStart(2,'0') + ':00';
     return `<span style="color:${e.type==='High'?'#ff8c6e':'#5de09a'}">${e.type} ${when} (${(e.height - tideDatum).toFixed(2)}m)</span>`;
   }).join(' &nbsp;·&nbsp; ') : 'No tide extremes in range';
 
@@ -1838,7 +1850,7 @@ function renderForecastPanel(wx, marine) {
       <span>${moon.emoji} ${moon.name} (${moon.illumination}%)</span>
       <span>${tideFooter}</span>
     </div>
-    <div style="padding:0 12px 8px;font-size:9px;color:var(--dim);line-height:1.4">Source: Open-Meteo (ECMWF/GFS weather + wave models), 16-day forecast, 3-hourly columns. Power is an estimated deep-water wave-power approximation (P ≈ 0.5·H²·T), not measured. Tide is shown as height above the lowest tide in this forecast window, not an official chart datum. Accuracy decreases with lead time, especially beyond ~7 days. Times in UTC. Drag the orange tag or click an hour to scrub.</div>`;
+    <div style="padding:0 12px 8px;font-size:9px;color:var(--dim);line-height:1.4">Source: Open-Meteo (ECMWF/GFS weather + wave models), 16-day forecast, 3-hourly columns. Power is an estimated deep-water wave-power approximation (P ≈ 0.5·H²·T), not measured. Tide is shown as height above the lowest tide in this forecast window, not an official chart datum. Accuracy decreases with lead time, especially beyond ~7 days. Times shown in your local timezone. Drag the orange tag or click an hour to scrub.</div>`;
 
   document.getElementById('fc-body').innerHTML = html;
 
@@ -1864,10 +1876,10 @@ function fcScrubTo(ci) {
 
   const d = new Date(wx.hourly.time[hi] + 'Z');
   const dowShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const h = d.getUTCHours();
+  const h = d.getHours();
   const hourLabel = h===0 ? '12AM' : h<12 ? h+'AM' : h===12 ? '12PM' : (h-12)+'PM';
   const tag = document.getElementById('fc-cursor-tag');
-  if (tag) tag.textContent = `${dowShort[d.getUTCDay()]} ${d.getUTCDate()} ${hourLabel}`;
+  if (tag) tag.textContent = `${dowShort[d.getDay()]} ${d.getDate()} ${hourLabel}`;
 
   const code = wx.hourly.weather_code ? wx.hourly.weather_code[hi] : null;
   const isDay = wx.hourly.is_day ? wx.hourly.is_day[hi] : 1;
@@ -2064,12 +2076,22 @@ map.on('click', async e => {
     // separate "forecast point" marker here, so a click never leaves two
     // dots on the map (one for the reading, one for the forecast point).
     placeClickMark(e.latlng.lat, e.latlng.lng);
+    updateLiveReadings(e.latlng.lat, e.latlng.lng);
     openForecastPanel(e.latlng.lat, e.latlng.lng);
     return; // stays active — click elsewhere to check another point
   }
   const {lat, lng} = e.latlng;
   placeClickMark(lat, lng);
+  updateLiveReadings(lat, lng);
+});
 
+// Populates the Live readings panel (SST/Chl/SLA/Depth) and, for backwards
+// compat, the legacy top readout panel, for a given point. Shared by the
+// normal read-value click and forecast-mode clicks — a forecast pick is
+// still a point on the map, and leaving the sidebar showing whatever was
+// read before (or nothing) while the forecast panel shows a different
+// point was confusing/inconsistent.
+async function updateLiveReadings(lat, lng) {
   const ls = Math.abs(lat).toFixed(3)+(lat<0?'°S':'°N');
   const ms = Math.abs(lng).toFixed(3)+(lng>0?'°E':'°W');
 
@@ -2165,7 +2187,7 @@ map.on('click', async e => {
     document.getElementById('live-depth').textContent = 'n/a';
     document.getElementById('live-depth').style.color = 'var(--dim)';
   }
-});
+}
 
 // ── GEBCO GetFeatureInfo — real water depth at a lat/lng point ────────────────
 async function getGebcoDepth(lat, lng) {
