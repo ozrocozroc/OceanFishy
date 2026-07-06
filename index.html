@@ -1334,9 +1334,13 @@ function flowArrowIcon(magnitude, maxScale, bearingDeg, fill) {
 function drawWindMarkers(locs) {
   windGroup.clearLayers();
   locs.forEach(loc => {
-    if (loc.kt == null) return;
+    if (loc.kmh == null) return;
+    // maxScale halved vs the old knots-based 1.1 (÷1.852, the knot->km/h
+    // factor) so arrows are sized/shaded the same as before for the same
+    // real wind speed — otherwise every arrow would suddenly look bigger
+    // and more opaque purely because the magnitude number got larger.
     L.marker([loc.lat, loc.lon], {
-      icon: flowArrowIcon(loc.kt, 1.1, loc.bearing, loc.fill), interactive: false, keyboard: false,
+      icon: flowArrowIcon(loc.kmh, 0.594, loc.bearing, loc.fill), interactive: false, keyboard: false,
     }).addTo(windGroup);
   });
 }
@@ -1355,8 +1359,11 @@ async function updateWind(bounds, timeIso) {
   // and picks out the scrubbed hour — the same forecast horizon and source
   // already powering the Forecast panel, so Wind can genuinely simulate a
   // future hour instead of only ever showing right-now conditions.
+  // No wind_speed_unit param on either URL — km/h is Open-Meteo's default
+  // for both the hourly and current endpoints, so no client-side unit
+  // conversion is needed at all now.
   const url = timeIso
-    ? `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}&hourly=wind_speed_10m,wind_direction_10m&forecast_days=16&wind_speed_unit=kn&timezone=UTC`
+    ? `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}&hourly=wind_speed_10m,wind_direction_10m&forecast_days=16&timezone=UTC`
     : `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m`;
   try {
     const resp = await fetch(url);
@@ -1367,25 +1374,25 @@ async function updateWind(bounds, timeIso) {
 
     const parsed = [];
     rawLocs.forEach(loc => {
-      let kt, dirDeg;
+      let kmh, dirDeg;
       if (timeIso) {
         const hi = loc.hourly?.time?.indexOf(timeIso);
         if (hi == null || hi < 0) return;
-        const kmh = loc.hourly.wind_speed_10m[hi];
+        kmh = loc.hourly.wind_speed_10m[hi];
         dirDeg = loc.hourly.wind_direction_10m[hi];
         if (kmh == null || dirDeg == null) return;
-        kt = kmh; // already knots (wind_speed_unit=kn)
       } else {
         if (!loc.current || loc.current.wind_speed_10m == null || loc.current.wind_direction_10m == null) return;
-        kt = loc.current.wind_speed_10m / 1.852;
+        kmh = loc.current.wind_speed_10m;
         dirDeg = loc.current.wind_direction_10m;
       }
       // wind_direction is meteorological "from" bearing — +180 to point the
       // arrow in the direction the wind is actually blowing toward, matching
       // the current arrows' flow-direction convention.
       const bearing = (dirDeg + 180) % 360;
-      const fill = kt < 10 ? '#8fe3b0' : kt < 20 ? '#3dc47e' : kt < 30 ? '#e0a83d' : '#e8573a';
-      parsed.push({lat: loc.latitude, lon: loc.longitude, kt, bearing, fill});
+      // Thresholds converted from the old 10/20/30kt bands (×1.852).
+      const fill = kmh < 19 ? '#8fe3b0' : kmh < 37 ? '#3dc47e' : kmh < 56 ? '#e0a83d' : '#e8573a';
+      parsed.push({lat: loc.latitude, lon: loc.longitude, kmh, bearing, fill});
     });
 
     if (timeIso) windForecastCache.set(timeIso, parsed);
@@ -1587,10 +1594,11 @@ function bandColor(value, bands) {
   while (i < bands.length && value >= bands[i]) i++;
   return INTENSITY_COLORS[i];
 }
-// Rough knots→color bands matching Windy's wind-strength palette — a visual
+// Rough km/h→color bands matching Windy's wind-strength palette — a visual
 // cue for "windy" columns while scanning the timeline, not a precise scale.
-function windColor(kt) {
-  return bandColor(kt, [6,12,17,21,25,29,33,38,45]);
+// (Thresholds converted from the original knot bands via ×1.852.)
+function windColor(kmh) {
+  return bandColor(kmh, [11,22,31,39,46,54,61,70,83]);
 }
 // Same intensity palette, thresholds tuned to each metric's own natural
 // range rather than reusing wind's knot bands.
@@ -1672,7 +1680,7 @@ async function openForecastPanel(lat, lng) {
   const myReqId = ++forecastReqId;
   try {
     const [wx, marine] = await Promise.all([
-      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=temperature_2m,precipitation,weather_code,is_day,pressure_msl,wind_speed_10m,wind_gusts_10m,wind_direction_10m&forecast_days=16&wind_speed_unit=kn&timezone=UTC`).then(r=>r.json()),
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=temperature_2m,precipitation,weather_code,is_day,pressure_msl,wind_speed_10m,wind_gusts_10m,wind_direction_10m&forecast_days=16&timezone=UTC`).then(r=>r.json()),
       fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_direction,swell_wave_period,sea_level_height_msl&forecast_days=16&timezone=UTC`).then(r=>r.json()),
     ]);
     if (myReqId !== forecastReqId) return;
@@ -1764,7 +1772,7 @@ function renderForecastPanel(wx, marine) {
   });
 
   let hourRow = label('Hour'), iconRow = label('Weather'), tempRow = label('Temp °C'),
-      rainRow = label('Rain mm'), windRow = label('Wind/Gust kt'),
+      rainRow = label('Rain mm'), windRow = label('Wind/Gust km/h'),
       pressRow = label('Pressure hPa'), waveRow = label('Wave m'),
       swellRow = label('Swell m/s'), powerRow = label('Power kW/m'), tideRow = label('Tide m');
 
@@ -1890,7 +1898,7 @@ function fcScrubTo(ci) {
   const summary = document.getElementById('fc-summary');
   if (summary) summary.innerHTML =
     `<span>${weatherIcon(code, isDay)}</span><span style="font-weight:600">${t!=null?Math.round(t)+'°C':'–'}</span>` +
-    `<span style="color:var(--dim)">Wind ${wkt!=null?Math.round(wkt):'–'}/${gkt!=null?Math.round(gkt):'–'}kt</span>` +
+    `<span style="color:var(--dim)">Wind ${wkt!=null?Math.round(wkt):'–'}/${gkt!=null?Math.round(gkt):'–'}km/h</span>` +
     `<span style="color:var(--dim)">Wave ${wh!=null?wh.toFixed(1)+'m':'–'}</span>`;
 
   // Drive the Wind/Swell map overlays to this same scrubbed hour, so they
