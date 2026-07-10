@@ -491,7 +491,13 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
         <span id="fc-summary" style="font-size:11px;display:flex;align-items:center;gap:8px"></span>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
-        <select id="fc-model" class="hsel" style="font-size:10px;padding:3px 6px" title="Wave model — which forecast source waves/wave power are computed from. Swell breakdown and tide always use Best match, whichever wave model is picked here." onchange="setMarineWaveModel(this.value)">
+        <select id="fc-weather-model" class="hsel" style="font-size:10px;padding:3px 6px" title="Weather model — which source Temp/Rain/Wind is computed from." onchange="setWeatherModel(this.value)">
+          <option value="best_match">Best match (auto)</option>
+          <option value="ecmwf_ifs025">ECMWF IFS</option>
+          <option value="gfs_seamless">NOAA GFS</option>
+          <option value="ncep_gfs013">NOAA GFS 0.13°</option>
+        </select>
+        <select id="fc-model" class="hsel" style="font-size:10px;padding:3px 6px" title="Wave model — which source Wave/Swell/Power is computed from. Tide always uses Best match regardless of this pick (no other model provides it)." onchange="setMarineWaveModel(this.value)">
           <option value="ecmwf_wam">ECMWF WAM 9km (recommended)</option>
           <option value="best_match">Best match (auto)</option>
           <option value="ecmwf_wam025">ECMWF WAM 25km</option>
@@ -1505,13 +1511,25 @@ let lastForecastLatLng = null; // re-used to reload the panel when the wave mode
 // forecast), and a couple of GFS/DWD name variants that 400'd. ecmwf_wam is
 // the default — confirmed by direct comparison to match Windy's own forecast
 // closely, unlike best_match's auto-selection which ran ~15-30% low here.
+// swell:true means this model returns GENUINE swell decomposition — checked
+// per-model against the live API, and it's not simply "null vs. not null":
+// ncep_gfswave025 and gwam return non-null swell_wave_height, but it's
+// numerically IDENTICAL to wave_height on every sample checked (10+ hours) —
+// i.e. they alias swell to the total sea state rather than truly separating
+// it, which would silently mislead if labeled as real swell. Only
+// meteofrance_wave and best_match were confirmed to return swell values that
+// genuinely differ from wave_height. Tide (sea_level_height_msl) is a
+// separate story: EVERY named model returns null for it, confirmed the same
+// way — best_match is the only source, full stop, so it's not tracked
+// per-model here at all (see openForecastPanel, which always fetches tide
+// from best_match regardless of this selector).
 const MARINE_WAVE_MODELS = [
-  {id:'ecmwf_wam',        label:'ECMWF WAM 9km (recommended)'},
-  {id:'best_match',       label:'Best match (auto)'},
-  {id:'ecmwf_wam025',     label:'ECMWF WAM 25km'},
-  {id:'ncep_gfswave025',  label:'NOAA GFS Wave'},
-  {id:'meteofrance_wave', label:'Météo-France Wave'},
-  {id:'gwam',             label:'DWD GWAM (global)'},
+  {id:'ecmwf_wam',        label:'ECMWF WAM 9km (recommended)', swell:false},
+  {id:'best_match',       label:'Best match (auto)',           swell:true},
+  {id:'ecmwf_wam025',     label:'ECMWF WAM 25km',              swell:false},
+  {id:'ncep_gfswave025',  label:'NOAA GFS Wave',                swell:false},
+  {id:'meteofrance_wave', label:'Météo-France Wave',            swell:true},
+  {id:'gwam',             label:'DWD GWAM (global)',            swell:false},
 ];
 let marineWaveModel = localStorage.getItem('oceanfishy_wave_model') || 'ecmwf_wam';
 if (!MARINE_WAVE_MODELS.some(m => m.id === marineWaveModel)) marineWaveModel = 'ecmwf_wam';
@@ -1519,6 +1537,32 @@ if (!MARINE_WAVE_MODELS.some(m => m.id === marineWaveModel)) marineWaveModel = '
 function setMarineWaveModel(id) {
   marineWaveModel = id;
   try { localStorage.setItem('oceanfishy_wave_model', id); } catch (err) { /* storage unavailable — just won't persist across reloads */ }
+  if (lastForecastLatLng) openForecastPanel(lastForecastLatLng.lat, lastForecastLatLng.lng);
+}
+
+// Weather (temp/wind/rain/pressure) model — separate selector and separate
+// Open-Meteo API entirely (api.open-meteo.com, not marine-api). All four
+// confirmed against the live API to return real temp/wind/rain data for
+// ~15-16 days at this region. bom_access_global (Australia's own BOM model)
+// was tested and excluded: its data_end_time is over a year stale (confirmed
+// via its meta.json), so it silently returns null for every current request
+// — worth revisiting later if Open-Meteo's BOM feed comes back online.
+// pressure:false means this model returns null for pressure_msl specifically
+// even though temp/wind/rain work fine on it (confirmed directly against the
+// API) — same "fall back to best_match for just the missing piece" pattern
+// as MARINE_WAVE_MODELS[].swell, see openForecastPanel.
+const WEATHER_MODELS = [
+  {id:'best_match',   label:'Best match (auto, recommended)', pressure:true},
+  {id:'ecmwf_ifs025',  label:'ECMWF IFS',                     pressure:true},
+  {id:'gfs_seamless', label:'NOAA GFS',                       pressure:true},
+  {id:'ncep_gfs013',  label:'NOAA GFS 0.13°',                 pressure:false},
+];
+let weatherModel = localStorage.getItem('oceanfishy_weather_model') || 'best_match';
+if (!WEATHER_MODELS.some(m => m.id === weatherModel)) weatherModel = 'best_match';
+
+function setWeatherModel(id) {
+  weatherModel = id;
+  try { localStorage.setItem('oceanfishy_weather_model', id); } catch (err) { /* storage unavailable — just won't persist across reloads */ }
   if (lastForecastLatLng) openForecastPanel(lastForecastLatLng.lat, lastForecastLatLng.lng);
 }
 // Forecast points used to get their own separate marker (setForecastPointMarker/
@@ -1721,35 +1765,68 @@ async function openForecastPanel(lat, lng) {
     Math.abs(lat).toFixed(3) + (lat<0?'°S':'°N') + ' · ' + Math.abs(lng).toFixed(3) + (lng>0?'°E':'°W');
   const modelSel = document.getElementById('fc-model');
   if (modelSel && modelSel.value !== marineWaveModel) modelSel.value = marineWaveModel;
+  const weatherModelSel = document.getElementById('fc-weather-model');
+  if (weatherModelSel && weatherModelSel.value !== weatherModel) weatherModelSel.value = weatherModel;
   document.getElementById('fc-body').innerHTML = '<div style="font-size:12px;color:var(--dim);padding:20px 0;text-align:center">Loading forecast…</div>';
   document.getElementById('fc-summary').innerHTML = '';
   syncSidebarToForecastPanel();
 
   const myReqId = ++forecastReqId;
   try {
-    // Total wave height/period/direction and swell+tide are fetched
-    // separately because they need DIFFERENT models: marineWaveModel (picked
-    // via the panel's model dropdown, see MARINE_WAVE_MODELS) instead of
-    // Open-Meteo's auto "best_match" — best_match's auto-selection measurably
-    // ran wave height/power ~15-30% low here vs. Windy's own forecast for
-    // the same point, which is why ecmwf_wam is the default. Whichever wave
-    // model is picked, it only provides the combined sea state, not the
-    // swell decomposition or tide (confirmed directly against the API: both
-    // come back null under every non-best_match model), so swell and tide
-    // always stay on the default model regardless of the wave selector. The
-    // map's swell overlay (updateSwell) needs the decomposition too, so it
-    // stays on the default model entirely — no benefit to pin there.
+    // Weather (temp/wind/rain/pressure) uses its own separate model
+    // selector — see WEATHER_MODELS. Same "fall back to best_match for just
+    // the missing piece" pattern as the marine side below: if the picked
+    // weather model doesn't provide pressure (WEATHER_MODELS[].pressure,
+    // verified per-model against the live API — currently only NOAA GFS
+    // 0.13°), pressure gets its own separate best_match fetch merged in,
+    // rather than the Pressure row just going blank.
+    //
+    // Marine data needs up to 2 requests depending on the picked wave
+    // model's capabilities (MARINE_WAVE_MODELS[].swell, verified per-model
+    // against the live API — checked for genuine decomposition, not just
+    // non-null, since two models return swell values numerically identical
+    // to wave height rather than real data): models with real swell
+    // (best_match, Météo-France) get wave+swell in ONE consistent fetch
+    // from that same model; every other wave model only provides the
+    // combined sea state, so swell falls back to best_match for those.
+    // Tide (sea_level_height_msl) is best_match-only on EVERY model, no
+    // exceptions (confirmed directly against the API) — always a separate
+    // fetch regardless of what's picked above.
+    const waveModelCfg = MARINE_WAVE_MODELS.find(m => m.id === marineWaveModel) || MARINE_WAVE_MODELS[0];
+    const weatherModelCfg = WEATHER_MODELS.find(m => m.id === weatherModel) || WEATHER_MODELS[0];
     const waveModelParam = marineWaveModel === 'best_match' ? '' : `&models=${marineWaveModel}`;
-    const [wx, marineWave, marineSwellTide] = await Promise.all([
-      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=temperature_2m,precipitation,weather_code,is_day,pressure_msl,wind_speed_10m,wind_gusts_10m,wind_direction_10m&forecast_days=16&timezone=UTC`).then(r=>r.json()),
-      fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=wave_height,wave_period,wave_direction&forecast_days=16&timezone=UTC${waveModelParam}`).then(r=>r.json()),
-      fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=swell_wave_height,swell_wave_direction,swell_wave_period,sea_level_height_msl&forecast_days=16&timezone=UTC`).then(r=>r.json()),
-    ]);
+    const weatherModelParam = weatherModel === 'best_match' ? '' : `&models=${weatherModel}`;
+
+    const weatherFields = weatherModelCfg.pressure
+      ? 'temperature_2m,precipitation,weather_code,is_day,pressure_msl,wind_speed_10m,wind_gusts_10m,wind_direction_10m'
+      : 'temperature_2m,precipitation,weather_code,is_day,wind_speed_10m,wind_gusts_10m,wind_direction_10m';
+    const wxPromises = weatherModelCfg.pressure
+      ? [fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=${weatherFields}&forecast_days=16&timezone=UTC${weatherModelParam}`).then(r=>r.json())]
+      : [
+          fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=${weatherFields}&forecast_days=16&timezone=UTC${weatherModelParam}`).then(r=>r.json()),
+          fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=pressure_msl&forecast_days=16&timezone=UTC`).then(r=>r.json()),
+        ];
+
+    const marinePromises = waveModelCfg.swell
+      ? [
+          fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_direction,swell_wave_period&forecast_days=16&timezone=UTC${waveModelParam}`).then(r=>r.json()),
+          fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=sea_level_height_msl&forecast_days=16&timezone=UTC`).then(r=>r.json()),
+        ]
+      : [
+          fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=wave_height,wave_period,wave_direction&forecast_days=16&timezone=UTC${waveModelParam}`).then(r=>r.json()),
+          fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=swell_wave_height,swell_wave_direction,swell_wave_period,sea_level_height_msl&forecast_days=16&timezone=UTC`).then(r=>r.json()),
+        ];
+
+    const results = await Promise.all([...wxPromises, ...marinePromises]);
     if (myReqId !== forecastReqId) return;
-    if (wx.error) throw new Error(wx.reason || 'weather API error');
+    const [wxMain, wxPressure] = weatherModelCfg.pressure ? [results[0], null] : [results[0], results[1]];
+    const [marineWave, marineRest] = weatherModelCfg.pressure ? [results[1], results[2]] : [results[2], results[3]];
+    if (wxMain.error) throw new Error(wxMain.reason || 'weather API error');
+    if (wxPressure && wxPressure.error) throw new Error(wxPressure.reason || 'weather API error');
     if (marineWave.error) throw new Error(marineWave.reason || 'marine API error');
-    if (marineSwellTide.error) throw new Error(marineSwellTide.reason || 'marine API error');
-    const marine = { hourly: { ...marineWave.hourly, ...marineSwellTide.hourly } };
+    if (marineRest.error) throw new Error(marineRest.reason || 'marine API error');
+    const wx = wxPressure ? { hourly: { ...wxMain.hourly, pressure_msl: wxPressure.hourly.pressure_msl } } : wxMain;
+    const marine = { hourly: { ...marineWave.hourly, ...marineRest.hourly } };
     renderForecastPanel(wx, marine);
   } catch (err) {
     if (myReqId !== forecastReqId) return;
