@@ -490,7 +490,17 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
         <span style="font-size:10px;color:var(--dim)" id="fc-coords"></span>
         <span id="fc-summary" style="font-size:11px;display:flex;align-items:center;gap:8px"></span>
       </div>
-      <span style="cursor:pointer;color:var(--dim);font-size:16px;line-height:1;padding:2px 6px" onclick="closeForecastPanel()">✕</span>
+      <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+        <select id="fc-model" class="hsel" style="font-size:10px;padding:3px 6px" title="Wave model — which forecast source waves/wave power are computed from. Swell breakdown and tide always use Best match, whichever wave model is picked here." onchange="setMarineWaveModel(this.value)">
+          <option value="ecmwf_wam">ECMWF WAM 9km (recommended)</option>
+          <option value="best_match">Best match (auto)</option>
+          <option value="ecmwf_wam025">ECMWF WAM 25km</option>
+          <option value="ncep_gfswave025">NOAA GFS Wave</option>
+          <option value="meteofrance_wave">Météo-France Wave</option>
+          <option value="gwam">DWD GWAM (global)</option>
+        </select>
+        <span style="cursor:pointer;color:var(--dim);font-size:16px;line-height:1;padding:2px 6px" onclick="closeForecastPanel()">✕</span>
+      </div>
     </div>
     <div id="fc-body" style="overflow:auto;flex:1">
       <div style="font-size:12px;color:var(--dim);padding:20px 0;text-align:center" id="fc-loading">Loading forecast…</div>
@@ -1486,6 +1496,31 @@ function toggleSwell() {
 // 16 days (their maximum forecast horizon). ──────────────────────────────────
 let forecastModeActive = false;
 let forecastReqId = 0;
+let lastForecastLatLng = null; // re-used to reload the panel when the wave model changes
+
+// Curated subset of Open-Meteo's marine "models" values — every one here was
+// individually confirmed to return real (non-null) wave_height data for
+// Australian coastal points before being added. Left out: DWD EWAM (Europe
+// only, errors elsewhere), ERA5-Ocean (historical reanalysis, not a
+// forecast), and a couple of GFS/DWD name variants that 400'd. ecmwf_wam is
+// the default — confirmed by direct comparison to match Windy's own forecast
+// closely, unlike best_match's auto-selection which ran ~15-30% low here.
+const MARINE_WAVE_MODELS = [
+  {id:'ecmwf_wam',        label:'ECMWF WAM 9km (recommended)'},
+  {id:'best_match',       label:'Best match (auto)'},
+  {id:'ecmwf_wam025',     label:'ECMWF WAM 25km'},
+  {id:'ncep_gfswave025',  label:'NOAA GFS Wave'},
+  {id:'meteofrance_wave', label:'Météo-France Wave'},
+  {id:'gwam',             label:'DWD GWAM (global)'},
+];
+let marineWaveModel = localStorage.getItem('oceanfishy_wave_model') || 'ecmwf_wam';
+if (!MARINE_WAVE_MODELS.some(m => m.id === marineWaveModel)) marineWaveModel = 'ecmwf_wam';
+
+function setMarineWaveModel(id) {
+  marineWaveModel = id;
+  try { localStorage.setItem('oceanfishy_wave_model', id); } catch (err) { /* storage unavailable — just won't persist across reloads */ }
+  if (lastForecastLatLng) openForecastPanel(lastForecastLatLng.lat, lastForecastLatLng.lng);
+}
 // Forecast points used to get their own separate marker (setForecastPointMarker/
 // removeForecastPointMarker, a fixed orange circle) — now placeClickMark (near
 // the click handler) is called for forecast clicks too, so the map only ever
@@ -1678,11 +1713,14 @@ function syncSidebarToForecastPanel() {
 new ResizeObserver(syncSidebarToForecastPanel).observe(forecastPanelEl);
 
 async function openForecastPanel(lat, lng) {
+  lastForecastLatLng = {lat, lng};
   const panel = document.getElementById('forecast-panel');
   panel.style.display = 'flex';
   updateCurrentLegendSize();
   document.getElementById('fc-coords').textContent =
     Math.abs(lat).toFixed(3) + (lat<0?'°S':'°N') + ' · ' + Math.abs(lng).toFixed(3) + (lng>0?'°E':'°W');
+  const modelSel = document.getElementById('fc-model');
+  if (modelSel && modelSel.value !== marineWaveModel) modelSel.value = marineWaveModel;
   document.getElementById('fc-body').innerHTML = '<div style="font-size:12px;color:var(--dim);padding:20px 0;text-align:center">Loading forecast…</div>';
   document.getElementById('fc-summary').innerHTML = '';
   syncSidebarToForecastPanel();
@@ -1690,19 +1728,21 @@ async function openForecastPanel(lat, lng) {
   const myReqId = ++forecastReqId;
   try {
     // Total wave height/period/direction and swell+tide are fetched
-    // separately because they need DIFFERENT models: models=ecmwf_wam pins
-    // the same wave model Windy uses (their panel labels it explicitly)
-    // instead of Open-Meteo's auto "best_match", which measurably ran wave
-    // height/power ~15-30% low here (confirmed by comparing both against
-    // Windy's own forecast for the same point) — but ecmwf_wam only provides
-    // the combined sea state, not the swell decomposition or tide (confirmed
-    // directly against the API: both come back null under that model), so
-    // swell and tide have to stay on the default model. The map's swell
-    // overlay (updateSwell) needs the decomposition too, so it stays on the
-    // default model entirely — there's no ecmwf_wam benefit to pin there.
+    // separately because they need DIFFERENT models: marineWaveModel (picked
+    // via the panel's model dropdown, see MARINE_WAVE_MODELS) instead of
+    // Open-Meteo's auto "best_match" — best_match's auto-selection measurably
+    // ran wave height/power ~15-30% low here vs. Windy's own forecast for
+    // the same point, which is why ecmwf_wam is the default. Whichever wave
+    // model is picked, it only provides the combined sea state, not the
+    // swell decomposition or tide (confirmed directly against the API: both
+    // come back null under every non-best_match model), so swell and tide
+    // always stay on the default model regardless of the wave selector. The
+    // map's swell overlay (updateSwell) needs the decomposition too, so it
+    // stays on the default model entirely — no benefit to pin there.
+    const waveModelParam = marineWaveModel === 'best_match' ? '' : `&models=${marineWaveModel}`;
     const [wx, marineWave, marineSwellTide] = await Promise.all([
       fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=temperature_2m,precipitation,weather_code,is_day,pressure_msl,wind_speed_10m,wind_gusts_10m,wind_direction_10m&forecast_days=16&timezone=UTC`).then(r=>r.json()),
-      fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=wave_height,wave_period,wave_direction&forecast_days=16&timezone=UTC&models=ecmwf_wam`).then(r=>r.json()),
+      fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=wave_height,wave_period,wave_direction&forecast_days=16&timezone=UTC${waveModelParam}`).then(r=>r.json()),
       fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=swell_wave_height,swell_wave_direction,swell_wave_period,sea_level_height_msl&forecast_days=16&timezone=UTC`).then(r=>r.json()),
     ]);
     if (myReqId !== forecastReqId) return;
