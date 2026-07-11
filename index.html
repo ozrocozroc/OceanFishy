@@ -2720,7 +2720,15 @@ function toggleConditions() {
 
 function toggleMarksEditMode() {
   marksEditMode = !marksEditMode;
-  document.getElementById('b-marks-edit').classList.toggle('on', marksEditMode);
+  const btn = document.getElementById('b-marks-edit');
+  btn.classList.toggle('on', marksEditMode);
+  // The #b-marks-edit.on{} CSS rule never actually took effect — this button
+  // carries inline background/color/border in its style attribute, and
+  // inline styles always beat any stylesheet rule regardless of selector
+  // specificity. Set the "on" look directly instead of relying on the class.
+  btn.style.background   = marksEditMode ? 'var(--acc)' : 'var(--surf2)';
+  btn.style.color        = marksEditMode ? '#fff' : 'var(--mut)';
+  btn.style.borderColor  = marksEditMode ? 'var(--acc)' : 'var(--bdrs)';
   setStatus(marksEditMode ? 'Edit mode: click a mark in the list to edit it' : '');
   renderMarksList();
 }
