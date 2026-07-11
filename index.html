@@ -2211,13 +2211,33 @@ function placeClickMark(lat, lng) {
   clickMark = L.circleMarker([lat,lng],{radius:5,color:'#fff',weight:1.5,fillColor:col,fillOpacity:.9}).addTo(map);
 }
 
+// Pending-location marker for the "add mark" flow — kept separate from
+// clickMark (used for the SST/Chl/SLA readout) so placing a new mark never
+// clobbers or gets clobbered by that dot. Stays on the map and stays
+// updatable (re-click anywhere to move it) for as long as the add-mark form
+// is open, so the user can nudge the GPS coord before saving instead of
+// having to type corrected lat/lng by hand.
+let addMarkPreview = null;
+function placeAddMarkPreview(lat, lng) {
+  if (addMarkPreview) map.removeLayer(addMarkPreview);
+  addMarkPreview = L.circleMarker([lat,lng],{radius:7,color:'#fff',weight:2,fillColor:'#ffd35e',fillOpacity:.95}).addTo(map);
+}
+function clearAddMarkPreview() {
+  if (addMarkPreview) { map.removeLayer(addMarkPreview); addMarkPreview = null; }
+}
+
 map.on('click', async e => {
   if (rulerActive) { addRulerPoint(e.latlng); return; }
   if (addingMark) {
-    addingMark = false;
-    map.getContainer().style.cursor = '';
-    setStatus('');
-    openMarkForm(null, e.latlng);
+    placeAddMarkPreview(e.latlng.lat, e.latlng.lng);
+    if (document.getElementById('mark-form').style.display === 'block') {
+      // Form already open for this new mark — just update its coords in
+      // place rather than opening a second form.
+      document.getElementById('mf-lat').value = e.latlng.lat.toFixed(4);
+      document.getElementById('mf-lng').value = e.latlng.lng.toFixed(4);
+    } else {
+      openMarkForm(null, e.latlng);
+    }
     return;
   }
   if (forecastModeActive) {
@@ -2576,7 +2596,7 @@ function markColor(m) {
 const MARK_ICONS = [
   '📍','🦞','⚓','🎣','🐟','🌊','🛟',
   '🐠','🦀','🦐','🐚','🐳','🐋','🦈','🦭',
-  '🧭','🪝','🌀','💧',
+  '🧭','🪝','🌀','💧','🤿','🥽',
   '🔴','🟠','🟡','🟢','🔵','🟣','⚫','⚪',
   '🟥','🟧','🟨','🟩','🟦','🟪','⬛','⬜',
   '🔺','🔻','🔶','🔷','🔸','🔹','⭐',
@@ -2696,7 +2716,7 @@ function startAddMark() {
   addingMark = true;
   editingMarkId = null;
   map.getContainer().style.cursor = 'crosshair';
-  setStatus('Click on the map to place the new mark');
+  setStatus('Click on the map to place the new mark — click again anytime to move it before saving');
 }
 
 function renderIconPicker(selected) {
@@ -2746,6 +2766,9 @@ function openEditMark(id) { openMarkForm(id, null); }
 function closeMarkForm() {
   document.getElementById('mark-form').style.display = 'none';
   editingMarkId = null;
+  addingMark = false;
+  map.getContainer().style.cursor = '';
+  clearAddMarkPreview();
 }
 
 // Accepts decimal degrees ("-34.556" or "34.556 S"), DMS ("34°33'21\"S"),
