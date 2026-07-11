@@ -298,7 +298,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   </div>
   <div style="display:flex;align-items:center;gap:8px">
     <select id="reg" class="hsel" onchange="jumpTo(this.value)">
-      <option value="sydney">Sydney Offshore</option>
+      <option value="sydney">Sydney NSW</option>
       <option value="brisbane">Brisbane / Moreton</option>
       <option value="cairns">Cairns / Coral Sea</option>
       <option value="geraldton">Geraldton / WA</option>
@@ -410,7 +410,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 
     <div class="panel">
       <div class="pt" id="cond-toggle" onclick="toggleConditions()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center">
-        <span>Conditions — <span id="rname">Sydney Offshore</span> <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">(regional estimates)</span></span>
+        <span>Conditions — <span id="rname">Sydney NSW</span> <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">(regional estimates)</span></span>
         <span id="cond-chevron" style="transition:transform .15s ease;flex-shrink:0;margin-left:6px;transform:rotate(-90deg)">▾</span>
       </div>
       <div id="cond-body" style="display:none">
@@ -648,7 +648,7 @@ const LAYERS = {
 };
 
 const REGIONS = {
-  sydney:      {lat:-33.85,lng:151.5, zoom:8, name:'Sydney Offshore',   sst:'20.1°C',sstd:'↑0.8°',       chl:'0.24 mg/m³',chld:'↓0.02',alt:'+4 cm',altd:'↑2cm', depth:'~800m',depthd:'Sydney Canyon'},
+  sydney:      {lat:-33.85,lng:151.5, zoom:8, name:'Sydney NSW',        sst:'20.1°C',sstd:'↑0.8°',       chl:'0.24 mg/m³',chld:'↓0.02',alt:'+4 cm',altd:'↑2cm', depth:'~800m',depthd:'Sydney Canyon'},
   brisbane:    {lat:-27.5, lng:154.2, zoom:7, name:'Brisbane / Moreton',sst:'24.8°C',sstd:'↑1.4°',       chl:'0.18 mg/m³',chld:'—',    alt:'+9 cm',altd:'↑5cm', depth:'~200m',depthd:'Moreton shelf edge'},
   cairns:      {lat:-16.9, lng:147.5, zoom:7, name:'Cairns / Coral Sea',sst:'28.4°C',sstd:'↑0.5°',       chl:'0.12 mg/m³',chld:'—',    alt:'+11 cm',altd:'↑4cm', depth:'~40m',depthd:'Great Barrier Reef shelf'},
   geraldton:   {lat:-28.8, lng:115.0, zoom:7, name:'Geraldton / WA',   sst:'22.1°C',sstd:'↑0.9°',       chl:'0.42 mg/m³',chld:'↑0.08',alt:'-2 cm',altd:'↓3cm', depth:'~150m',depthd:'Abrolhos shelf edge'},
@@ -2530,6 +2530,17 @@ const DEFAULT_MARKS = [
   {id:'nsw-jervis-bay', lat:-34.9625, lng:150.9750, name:'Jervis Bay FAD',    depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
   {id:'nsw-batemans-bay',lat:-35.8333,lng:150.3772, name:'Batemans Bay FAD',  depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
   {id:'nsw-eden',       lat:-36.9800, lng:150.2458, name:'Eden (Far South Coast) FAD', depth:'—', species:'Pelagics — Mahi Mahi, Marlin, Tuna', group:'NSW FADs'},
+
+  // Sydney's well-known coastline shore-dive sites (not FADs — these are
+  // fixed reef/wreck/wall dive spots, not fish aggregating buoys).
+  {id:'syd-gordons-bay',   lat:-33.9143, lng:151.2712, name:'Gordons Bay',          depth:'5-18m',  species:'Dive site — underwater nature trail, wobbegongs, reef fish', group:'Sydney Dive Spots', icon:'🤿'},
+  {id:'syd-shelly-beach',  lat:-33.8025, lng:151.2887, name:'Shelly Beach, Manly',  depth:'3-14m',  species:'Dive site — weedy seadragons, blue gropers, seahorses', group:'Sydney Dive Spots', icon:'🤿'},
+  {id:'syd-camp-cove',     lat:-33.8386, lng:151.2775, name:'Camp Cove',           depth:'5-12m',  species:'Dive site — sheltered bay, easy shore entry, macro life', group:'Sydney Dive Spots', icon:'🤿'},
+  {id:'syd-fairlight',     lat:-33.7994, lng:151.2822, name:'Fairlight, Manly',    depth:'3-12m',  species:'Dive site — sheltered bay, blue gropers, macro', group:'Sydney Dive Spots', icon:'🤿'},
+  {id:'syd-bare-island',   lat:-33.9944, lng:151.2358, name:'Bare Island, La Perouse', depth:'5-18m', species:'Dive site — wall dive, gorgonians, gray nurse sharks (seasonal)', group:'Sydney Dive Spots', icon:'🤿'},
+  {id:'syd-magic-point',   lat:-33.9483, lng:151.2597, name:'Magic Point, Maroubra', depth:'10-20m', species:'Dive site — gray nurse shark aggregation site', group:'Sydney Dive Spots', icon:'🤿'},
+  {id:'syd-kurnell-steps', lat:-34.0008, lng:151.2205, name:'The Steps, Kurnell',   depth:'5-15m',  species:'Dive site — Botany Bay wall, soft corals, macro', group:'Sydney Dive Spots', icon:'🤿'},
+  {id:'syd-oak-park',      lat:-34.0505, lng:151.1587, name:'Oak Park, Cronulla',  depth:'3-10m',  species:'Dive site — sheltered shore dive, weedy seadragons', group:'Sydney Dive Spots', icon:'🤿'},
 ];
 const MARKS_STORAGE_KEY = 'oceanfishy_marks';
 
@@ -2630,7 +2641,7 @@ function renderMarksList() {
     return;
   }
   wrap.innerHTML = groupNames.map(g => `
-    <details open>
+    <details>
       <summary style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;cursor:pointer;padding:4px 0">${g} (${byGroup[g].length})</summary>
       ${byGroup[g].map(m => `
         <div class="mr${m.id === selectedMarkId ? ' selected' : ''}">
