@@ -2652,6 +2652,13 @@ function renderGroupFilter() {
   document.getElementById('mark-groups-list').innerHTML = groups.map(g => `<option value="${g}">`).join('');
 }
 
+// Groups collapsed by default (see setConditionsCollapsed-style UX), but
+// renderMarksList() rebuilds the whole list from scratch on every call —
+// filter change, add/edit/delete, flyToMark, and (critically) toggling Edit
+// mode itself all re-render. Without remembering which groups the user had
+// open, every one of those actions snapped all groups back to collapsed,
+// hiding the ✏️ pencils right as you clicked "✎ Edit" to use them.
+let openMarkGroups = new Set();
 function renderMarksList() {
   const filter = document.getElementById('mark-group-filter').value || 'All';
   const wrap = document.getElementById('marks-list');
@@ -2667,7 +2674,7 @@ function renderMarksList() {
     return;
   }
   wrap.innerHTML = groupNames.map(g => `
-    <details>
+    <details${openMarkGroups.has(g) ? ' open' : ''} data-group="${g}" ontoggle="if(this.open) openMarkGroups.add('${g}'); else openMarkGroups.delete('${g}')">
       <summary style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;cursor:pointer;padding:4px 0">${g} (${byGroup[g].length})</summary>
       ${byGroup[g].map(m => `
         <div class="mr${m.id === selectedMarkId ? ' selected' : ''}">
