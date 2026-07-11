@@ -706,6 +706,12 @@ L.DomEvent.disableClickPropagation(document.getElementById('forecast-panel'));
 // SST/Chl/SLA reading + marker at whatever point sits under the sidebar.
 L.DomEvent.disableClickPropagation(document.getElementById('sb'));
 
+// disableClickPropagation only stops clicks — mouse wheel events over any
+// floating panel inside #map still bubble to Leaflet's scrollWheelZoom, so
+// scrolling the Known Marks list (or the sidebar generally, in its
+// forecast-open scrollable state) zoomed the map underneath instead.
+L.DomEvent.disableScrollPropagation(document.getElementById('sb'));
+
 let baseLayer = null, baseLayer2 = null;
 const markGroup = L.layerGroup().addTo(map);
 const contourGroup = L.layerGroup().addTo(map);
