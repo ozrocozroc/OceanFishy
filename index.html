@@ -2712,11 +2712,21 @@ function toggleMarksEditMode() {
   renderMarksList();
 }
 
+// Opens the form immediately instead of arming a "click the map to place
+// it" mode the user has to act on blind — starts from the last point
+// clicked on the map (clickMark, the same dot used for the SST/Chl/SLA
+// readout) so there's usually already a sensible position, falling back to
+// the current map center if nothing's been clicked yet this session. The
+// map stays in reposition mode (see the addingMark branch in map.on('click'))
+// so the pin can still be nudged by clicking elsewhere before saving.
 function startAddMark() {
   addingMark = true;
   editingMarkId = null;
   map.getContainer().style.cursor = 'crosshair';
-  setStatus('Click on the map to place the new mark — click again anytime to move it before saving');
+  const start = clickMark ? clickMark.getLatLng() : map.getCenter();
+  placeAddMarkPreview(start.lat, start.lng);
+  openMarkForm(null, start);
+  setStatus('Click anywhere on the map to move the pin, then Save');
 }
 
 function renderIconPicker(selected) {
