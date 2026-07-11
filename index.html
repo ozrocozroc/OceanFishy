@@ -438,7 +438,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
         <span class="pt" style="margin:0">Known marks</span>
         <div style="display:flex;gap:5px;flex-shrink:0">
           <button id="b-marks-edit" onclick="toggleMarksEditMode()" title="Toggle edit mode — click a mark in the list to edit it" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;white-space:nowrap">✎ Edit</button>
-          <button onclick="startAddMark()" style="background:var(--acc);color:#fff;border:none;border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;white-space:nowrap">＋ Add</button>
+          <button id="b-marks-add" onclick="startAddMark()" style="background:rgba(42,159,214,.35);color:#fff;border:1px solid rgba(42,159,214,.5);border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;white-space:nowrap">＋ Add</button>
         </div>
       </div>
       <select id="mark-group-filter" onchange="renderMarksList()" style="width:100%;background:var(--surf2);border:1px solid var(--bdrs);color:var(--mut);border-radius:4px;font-size:11px;padding:5px 6px;font-family:inherit;outline:none;margin-bottom:6px;flex-shrink:0"></select>
@@ -2740,10 +2740,19 @@ function toggleMarksEditMode() {
 // the current map center if nothing's been clicked yet this session. The
 // map stays in reposition mode (see the addingMark branch in map.on('click'))
 // so the pin can still be nudged by clicking elsewhere before saving.
+function setAddMarkButtonActive(active) {
+  const btn = document.getElementById('b-marks-add');
+  // Same inline-style-beats-CSS-class issue as b-marks-edit — set the
+  // "active" full-accent look directly rather than via a toggled class.
+  btn.style.background  = active ? 'var(--acc)' : 'rgba(42,159,214,.35)';
+  btn.style.borderColor = active ? 'var(--acc)' : 'rgba(42,159,214,.5)';
+}
+
 function startAddMark() {
   addingMark = true;
   editingMarkId = null;
   map.getContainer().style.cursor = 'crosshair';
+  setAddMarkButtonActive(true);
   const start = clickMark ? clickMark.getLatLng() : map.getCenter();
   placeAddMarkPreview(start.lat, start.lng);
   openMarkForm(null, start);
@@ -2800,6 +2809,7 @@ function closeMarkForm() {
   addingMark = false;
   map.getContainer().style.cursor = '';
   clearAddMarkPreview();
+  setAddMarkButtonActive(false);
 }
 
 // Accepts decimal degrees ("-34.556" or "34.556 S"), DMS ("34°33'21\"S"),
