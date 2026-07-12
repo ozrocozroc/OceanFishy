@@ -450,9 +450,9 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
           <button id="b-marks-add" onclick="startAddMark()" style="background:rgba(42,159,214,.35);color:#fff;border:1px solid rgba(42,159,214,.5);border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;white-space:nowrap">＋ Add</button>
         </div>
       </div>
-      <div id="mark-group-filter" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;flex-shrink:0"></div>
+      <select id="mark-group-filter" onchange="renderMarksList()" style="width:100%;background:var(--surf2);border:1px solid var(--bdrs);color:var(--mut);border-radius:4px;font-size:11px;padding:5px 6px;font-family:inherit;outline:none;margin-bottom:6px;flex-shrink:0"></select>
       <div style="display:flex;justify-content:flex-end;gap:5px;margin-bottom:8px;flex-shrink:0">
-        <button onclick="exportMarks()" title="Download marks as a JSON file — set the group filter above to 'All groups' or a specific group first to control what's exported" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬇ Export</button>
+        <button onclick="openExportForm()" title="Choose which group(s) to export as a JSON file" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬇ Export</button>
         <button onclick="document.getElementById('mark-import-input').click()" title="Import marks from a JSON file" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬆ Import</button>
         <input type="file" id="mark-import-input" accept="application/json,.json" style="display:none" onchange="importMarks(this.files[0]); this.value=''">
         <button id="b-marks-hide" onclick="toggleMarksVisibility()" title="Temporarily hide all mark pins from the map — nothing is deleted, click again to bring them back" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">👁 Hide pins</button>
@@ -481,6 +481,17 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
       <button class="mf-btn primary" onclick="saveMarkForm()">Save</button>
       <button class="mf-btn danger" id="mf-delete" onclick="deleteMarkForm()" style="display:none">Delete</button>
       <button class="mf-btn ghost" onclick="closeMarkForm()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Export marks — group picker popup -->
+  <div id="export-form" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:rgba(18,28,46,.97);border:1px solid var(--bdrs);border-radius:10px;padding:16px;width:260px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.5)">
+    <div style="font-size:12px;font-weight:600;margin-bottom:6px">Export marks</div>
+    <div style="font-size:9px;color:var(--dim);margin-bottom:8px">Leave everything unchecked to export all groups, or pick one or more below.</div>
+    <div id="export-form-list" style="max-height:220px;overflow-y:auto;margin-bottom:10px"></div>
+    <div style="display:flex;gap:6px">
+      <button class="mf-btn primary" onclick="confirmExport()">Export</button>
+      <button class="mf-btn ghost" onclick="closeExportForm()">Cancel</button>
     </div>
   </div>
 
@@ -718,17 +729,22 @@ L.DomEvent.disableClickPropagation(document.getElementById('forecast-panel'));
 // SST/Chl/SLA reading + marker at whatever point sits under the sidebar.
 L.DomEvent.disableClickPropagation(document.getElementById('sb'));
 
-// #mark-form is a sibling of #sb, not nested inside it, so it never got the
-// same fix — mousedown inside the add/edit-mark panel (dragging across a
-// text field, clicking the icon picker, etc.) bubbled to the map container
-// and Leaflet's own drag handler, panning the map underneath the form.
+// #mark-form and #export-form are siblings of #sb, not nested inside it, so
+// they never got the same fix — mousedown inside either panel (dragging
+// across a text field, the icon picker, a checkbox row) bubbled to the map
+// container and Leaflet's own drag handler, panning the map underneath the
+// popup. Any future floating panel added as a direct child of #map (rather
+// than nested inside #sb, which already covers its descendants) needs this
+// same explicit fix.
 L.DomEvent.disableClickPropagation(document.getElementById('mark-form'));
+L.DomEvent.disableClickPropagation(document.getElementById('export-form'));
 
 // disableClickPropagation only stops clicks — mouse wheel events over any
 // floating panel inside #map still bubble to Leaflet's scrollWheelZoom, so
 // scrolling the Known Marks list (or the sidebar generally, in its
 // forecast-open scrollable state) zoomed the map underneath instead.
 L.DomEvent.disableScrollPropagation(document.getElementById('sb'));
+L.DomEvent.disableScrollPropagation(document.getElementById('export-form'));
 
 let baseLayer = null, baseLayer2 = null;
 const markGroup = L.layerGroup().addTo(map);
@@ -3027,29 +3043,12 @@ function renderMarkers() {
   });
 }
 
-// Chip toggles instead of a single-select dropdown — lets the list (and
-// Export) be scoped to more than one group at once, e.g. "NSW FADs" +
-// "Sydney Dive Spots" together. Empty set = no filter, same meaning "All
-// groups" used to have.
-let selectedMarkGroups = new Set();
-
-function toggleGroupFilter(g) {
-  if (g === 'All') selectedMarkGroups.clear();
-  else if (selectedMarkGroups.has(g)) selectedMarkGroups.delete(g);
-  else selectedMarkGroups.add(g);
-  renderGroupFilter();
-  renderMarksList();
-}
-
 function renderGroupFilter() {
-  const wrap = document.getElementById('mark-group-filter');
+  const sel = document.getElementById('mark-group-filter');
   const groups = [...new Set(marks.map(m => m.group || 'Ungrouped'))].sort();
-  // Drop any selected group that no longer exists (deleted/renamed marks)
-  // so a stale selection can't silently filter everything down to nothing.
-  [...selectedMarkGroups].forEach(g => { if (!groups.includes(g)) selectedMarkGroups.delete(g); });
-
-  wrap.innerHTML = `<button class="date-chip${selectedMarkGroups.size === 0 ? ' on' : ''}" onclick="toggleGroupFilter('All')">All groups</button>` +
-    groups.map(g => `<button class="date-chip${selectedMarkGroups.has(g) ? ' on' : ''}" onclick="toggleGroupFilter('${g}')">${g}</button>`).join('');
+  const current = sel.value || 'All';
+  sel.innerHTML = '<option value="All">All groups</option>' + groups.map(g => `<option value="${g}">${g}</option>`).join('');
+  sel.value = groups.includes(current) ? current : 'All';
 
   document.getElementById('mark-groups-list').innerHTML = groups.map(g => `<option value="${g}">`).join('');
 }
@@ -3062,11 +3061,12 @@ function renderGroupFilter() {
 // hiding the ✏️ pencils right as you clicked "✎ Edit" to use them.
 let openMarkGroups = new Set();
 function renderMarksList() {
+  const filter = document.getElementById('mark-group-filter').value || 'All';
   const wrap = document.getElementById('marks-list');
   const byGroup = {};
   marks.forEach(m => {
     const g = m.group || 'Ungrouped';
-    if (selectedMarkGroups.size > 0 && !selectedMarkGroups.has(g)) return;
+    if (filter !== 'All' && g !== filter) return;
     (byGroup[g] = byGroup[g] || []).push(m);
   });
   const groupNames = Object.keys(byGroup).sort();
@@ -3303,29 +3303,52 @@ function toggleMarksVisibility() {
 
 // ── Export / import marks (marks only live in this browser's localStorage —
 // this is the way to back them up or move them to another browser/device) ────
-function exportMarks() {
-  // Reuse the group chips already sitting above the Export button, rather
-  // than adding a second group picker — "export whatever's currently
-  // filtered" matches what the list on screen shows, and supports multiple
-  // groups at once since selectedMarkGroups is a Set, not a single value.
-  const groupsLabel = selectedMarkGroups.size === 0 ? 'All' : [...selectedMarkGroups].sort().join(', ');
-  const toExport = selectedMarkGroups.size === 0
+// Export supports picking several groups at once, but the list filter above
+// it (mark-group-filter) is a plain single-select dropdown — rather than
+// force that filter into a multi-select (chips proved harder to scan at a
+// glance), Export gets its own small popup with a checkbox per group.
+let exportSelectedGroups = new Set();
+
+function openExportForm() {
+  const groups = [...new Set(marks.map(m => m.group || 'Ungrouped'))].sort();
+  if (!groups.length) { setStatus('No marks to export.'); return; }
+  document.getElementById('export-form-list').innerHTML = groups.map(g => `
+    <label style="display:flex;align-items:center;gap:7px;padding:5px 2px;font-size:12px;color:var(--txt);cursor:pointer">
+      <input type="checkbox" value="${g}" ${exportSelectedGroups.has(g) ? 'checked' : ''} onchange="toggleExportGroup('${g}')">
+      ${g} <span style="color:var(--dim);font-size:10px">(${marks.filter(m => (m.group || 'Ungrouped') === g).length})</span>
+    </label>
+  `).join('');
+  document.getElementById('export-form').style.display = 'block';
+}
+
+function toggleExportGroup(g) {
+  if (exportSelectedGroups.has(g)) exportSelectedGroups.delete(g); else exportSelectedGroups.add(g);
+}
+
+function closeExportForm() {
+  document.getElementById('export-form').style.display = 'none';
+}
+
+function confirmExport() {
+  const groupsLabel = exportSelectedGroups.size === 0 ? 'All' : [...exportSelectedGroups].sort().join(', ');
+  const toExport = exportSelectedGroups.size === 0
     ? marks
-    : marks.filter(m => selectedMarkGroups.has(m.group || 'Ungrouped'));
+    : marks.filter(m => exportSelectedGroups.has(m.group || 'Ungrouped'));
   if (!toExport.length) { setStatus('No marks in "' + groupsLabel + '" to export.'); return; }
 
   const blob = new Blob([JSON.stringify(toExport, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  const groupSlug = selectedMarkGroups.size === 0 ? '' :
-    '-' + [...selectedMarkGroups].sort().join('-').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  const groupSlug = exportSelectedGroups.size === 0 ? '' :
+    '-' + [...exportSelectedGroups].sort().join('-').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   a.download = 'oceanfishy-marks' + groupSlug + '-' + todayStr() + '.json';
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-  setStatus(`Exported ${toExport.length} mark${toExport.length === 1 ? '' : 's'}` + (selectedMarkGroups.size === 0 ? '' : ` from "${groupsLabel}"`) + '.');
+  setStatus(`Exported ${toExport.length} mark${toExport.length === 1 ? '' : 's'}` + (exportSelectedGroups.size === 0 ? '' : ` from "${groupsLabel}"`) + '.');
+  closeExportForm();
 }
 
 function importMarks(file) {
