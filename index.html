@@ -341,7 +341,6 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <button class="lb chl"    id="b-chlOlci" onclick="setLayer('chlOlci')" title="Copernicus Sentinel-3 OLCI daily — ~2-3 day lag"><span class="bdot chl"></span>OLCI <span style="font-size:9px;color:var(--dim)">2-3d</span></button>
   <button class="lb alt"    id="b-alt" onclick="setLayer('alt')"><span class="bdot alt"></span>Altimetry</button>
   <button class="lb depth"  id="b-depth" onclick="setLayer('depth')"><span class="bdot depth"></span>Depth</button>
-  <button class="lb on"     id="b-off" onclick="setLayer('off')">Off</button>
   <div class="sep"></div>
   <div style="display:flex;align-items:center;gap:6px">
     <label style="font-size:11px;color:var(--dim)">Opacity</label>
@@ -2339,9 +2338,15 @@ function selectDateChip(btn, iso) {
 }
 
 // ── Controls ──────────────────────────────────────────────────────────────────
+// Each layer button now doubles as its own off switch — clicking the
+// currently-active one again clears the layer instead of requiring a
+// separate "Off" button (removed). Selecting a layer already turned off
+// whatever was previously active, so a dedicated Off button was purely
+// redundant with "click the active one again."
 function setLayer(type) {
+  if (type === curLayer) type = 'off';
   curLayer = type;
-  ['sst','chl','chlOlci','alt','depth','off'].forEach(t => document.getElementById('b-'+t)?.classList.remove('on'));
+  ['sst','chl','chlOlci','alt','depth'].forEach(t => document.getElementById('b-'+t)?.classList.remove('on'));
   document.getElementById('b-'+type)?.classList.add('on');
   updateLegend();
   if (type !== 'off') updateAvailNote(LAYERS[type]);
