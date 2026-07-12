@@ -294,15 +294,6 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
     <span id="data-avail"></span>
   </div>
   <div style="display:flex;align-items:center;gap:8px">
-    <select id="reg" class="hsel" onchange="jumpTo(this.value)">
-      <option value="sydney">Sydney NSW</option>
-      <option value="brisbane">Brisbane / Moreton</option>
-      <option value="cairns">Cairns / Coral Sea</option>
-      <option value="geraldton">Geraldton / WA</option>
-      <option value="portlincoln">Port Lincoln / SA</option>
-      <option value="tasmania">Tasmania</option>
-      <option value="australia">All Australia</option>
-    </select>
     <div class="live"><span class="dot"></span>NOAA · NASA</div>
   </div>
 </header>
@@ -648,22 +639,6 @@ const LAYERS = {
     note:'SRTM15+ · 15 arc-sec (~270m) · Static bathymetry · land masked',
     isStatic: true,
   },
-};
-
-// Formerly also carried hardcoded sst/chl/alt/depth strings per region for
-// the Conditions panel — static placeholder text that never changed and
-// never reflected reality (e.g. Sydney always showed "20.1°C" regardless of
-// season or the actual date). jumpTo() now fetches real SLA/Depth (and a
-// simVal SST/Chl estimate, same as Live Readings) at each region's center
-// instead, same pattern already used for the click popup.
-const REGIONS = {
-  sydney:      {lat:-33.85,lng:151.5, zoom:8, name:'Sydney NSW'},
-  brisbane:    {lat:-27.5, lng:154.2, zoom:7, name:'Brisbane / Moreton'},
-  cairns:      {lat:-16.9, lng:147.5, zoom:7, name:'Cairns / Coral Sea'},
-  geraldton:   {lat:-28.8, lng:115.0, zoom:7, name:'Geraldton / WA'},
-  portlincoln: {lat:-34.7, lng:136.0, zoom:7, name:'Port Lincoln'},
-  tasmania:    {lat:-43.0, lng:147.5, zoom:7, name:'Tasmania'},
-  australia:   {lat:-28.0, lng:134.0, zoom:4, name:'Australia'},
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -2781,12 +2756,6 @@ function simVal(lat,lng,layer) {
   return {val:'—', unit:'', note:''};
 }
 
-// ── Region jump ───────────────────────────────────────────────────────────────
-function jumpTo(key) {
-  const r = REGIONS[key];
-  map.flyTo([r.lat,r.lng],r.zoom,{duration:1.2});
-}
-
 function flyMark(lat,lng) {
   map.flyTo([lat,lng],11,{duration:1});
   // On mobile the marks list lives in the drawer — close it so the map/tooltip is visible
@@ -3426,7 +3395,6 @@ function clearRuler() {
 buildBase('sat');
 buildDateChips(todayStr(), 1); // placeholder until useLatestAvailableDate() confirms the real dates
 updateLegend();
-jumpTo('sydney');
 updateAvailNote(null); // curLayer defaults to 'off' — no data-availability note to show
 useLatestAvailableDate();
 renderMarkers();
