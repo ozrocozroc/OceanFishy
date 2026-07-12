@@ -1405,20 +1405,30 @@ function hotspotIcon(rank) {
 // Easter egg — the Hotspots tool is powerful but a lot of screen-reading for
 // a casual user (5 live data fetches, a scoring breakdown per pin), so it's
 // hidden behind a triple-click on the logo rather than sitting in the Tools
-// bar by default. Once found, it stays unlocked for that browser (same
-// localStorage pattern as everything else in Known Marks/forecast settings).
+// bar by default. A genuine on/off switch: triple-click again while unlocked
+// to re-hide it — no dev-tools/localStorage-clearing required. State
+// persists across reloads either way (same localStorage pattern as
+// everything else in Known Marks/forecast settings).
 const HOTSPOT_UNLOCK_KEY = 'oceanfishy_hotspots_unlocked';
 let logoClickCount = 0, logoClickTimer = null;
 function handleLogoClick() {
-  if (localStorage.getItem(HOTSPOT_UNLOCK_KEY)) return; // already unlocked, nothing to do
   logoClickCount++;
   clearTimeout(logoClickTimer);
   logoClickTimer = setTimeout(() => { logoClickCount = 0; }, 700);
-  if (logoClickCount >= 3) {
-    logoClickCount = 0;
+  if (logoClickCount < 3) return;
+  logoClickCount = 0;
+
+  const nowUnlocked = !localStorage.getItem(HOTSPOT_UNLOCK_KEY);
+  const btn = document.getElementById('b-hotspots');
+  if (nowUnlocked) {
     localStorage.setItem(HOTSPOT_UNLOCK_KEY, '1');
-    document.getElementById('b-hotspots').style.display = '';
+    btn.style.display = '';
     setStatus('🎯 Hotspot finder unlocked!');
+  } else {
+    localStorage.removeItem(HOTSPOT_UNLOCK_KEY);
+    btn.style.display = 'none';
+    if (showHotspots) toggleHotspots(); // don't leave it active but inaccessible
+    setStatus('Hotspot finder hidden again.');
   }
 }
 if (localStorage.getItem(HOTSPOT_UNLOCK_KEY)) {
