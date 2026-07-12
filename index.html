@@ -2559,7 +2559,7 @@ async function updateLiveReadings(lat, lng) {
       document.getElementById('live-cur').textContent = 'n/a';
       document.getElementById('live-cur').style.color = 'var(--dim)';
     } else {
-      document.getElementById('live-cur').textContent = cur.speedKt.toFixed(2) + ' kt · ' + cur.dirDeg.toFixed(0) + '°';
+      document.getElementById('live-cur').textContent = cur.speedKt.toFixed(2) + ' kt · ' + compassDir(cur.dirDeg);
       document.getElementById('live-cur').style.color = 'var(--txt)';
       if (curLayer === 'off') {
         document.getElementById('live-note').innerHTML = currentNote(cur.speedKt);
@@ -2588,14 +2588,14 @@ async function updateLiveReadings(lat, lng) {
       document.getElementById('live-wind').textContent = 'n/a';
       document.getElementById('live-wind').style.color = 'var(--dim)';
     } else {
-      document.getElementById('live-wind').textContent = Math.round(wind.speedKmh) + ' km/h · ' + wind.dirDeg.toFixed(0) + '°' + (wind.gustKmh != null ? ' (gust ' + Math.round(wind.gustKmh) + ')' : '');
+      document.getElementById('live-wind').textContent = Math.round(wind.speedKmh) + ' km/h · ' + compassDir(wind.dirDeg) + (wind.gustKmh != null ? ' (gust ' + Math.round(wind.gustKmh) + ')' : '');
       document.getElementById('live-wind').style.color = 'var(--txt)';
     }
     if (swell === null) {
       document.getElementById('live-swell').textContent = 'n/a';
       document.getElementById('live-swell').style.color = 'var(--dim)';
     } else {
-      document.getElementById('live-swell').textContent = swell.heightM.toFixed(1) + ' m · ' + swell.dirDeg.toFixed(0) + '°';
+      document.getElementById('live-swell').textContent = swell.heightM.toFixed(1) + ' m · ' + compassDir(swell.dirDeg);
       document.getElementById('live-swell').style.color = 'var(--txt)';
     }
   } catch(err) {
@@ -2673,6 +2673,19 @@ async function getRealCurrent(lat, lng) {
 
 function currentNote(kt) {
   return kt<0.2 ? '→ Near-slack — minimal drift' : kt<0.5 ? '→ Light current' : kt<1 ? '→ Moderate current — bait holds, good drift speed' : '→ Strong current — consider drift/anchor strategy';
+}
+
+// 8-point compass arrow + abbreviation, exact degrees kept alongside in
+// parentheses — a glance-friendly "↑ N" reads faster than "0°" (which way is
+// that? no idea without a mental compass lookup), but nothing's lost for
+// whoever actually wants the precise bearing.
+const COMPASS_DIRS = [
+  {arrow:'↑', label:'N'}, {arrow:'↗', label:'NE'}, {arrow:'→', label:'E'}, {arrow:'↘', label:'SE'},
+  {arrow:'↓', label:'S'}, {arrow:'↙', label:'SW'}, {arrow:'←', label:'W'}, {arrow:'↖', label:'NW'},
+];
+function compassDir(deg) {
+  const d = COMPASS_DIRS[Math.round(deg / 45) % 8];
+  return `${d.arrow} ${d.label} (${deg.toFixed(0)}°)`;
 }
 
 // ── Real wind/swell at a single point (Open-Meteo — free, no key, real CORS,
