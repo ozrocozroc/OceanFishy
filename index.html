@@ -450,7 +450,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
           <button id="b-marks-add" onclick="startAddMark()" style="background:rgba(42,159,214,.35);color:#fff;border:1px solid rgba(42,159,214,.5);border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;white-space:nowrap">＋ Add</button>
         </div>
       </div>
-      <select id="mark-group-filter" onchange="renderMarksList()" style="width:100%;background:var(--surf2);border:1px solid var(--bdrs);color:var(--mut);border-radius:4px;font-size:11px;padding:5px 6px;font-family:inherit;outline:none;margin-bottom:6px;flex-shrink:0"></select>
+      <select id="mark-group-filter" onchange="renderMarkers(); renderMarksList()" style="width:100%;background:var(--surf2);border:1px solid var(--bdrs);color:var(--mut);border-radius:4px;font-size:11px;padding:5px 6px;font-family:inherit;outline:none;margin-bottom:6px;flex-shrink:0"></select>
       <div style="display:flex;justify-content:flex-end;gap:5px;margin-bottom:8px;flex-shrink:0">
         <button onclick="openExportForm()" title="Choose which group(s) to export as a JSON file" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬇ Export</button>
         <button onclick="document.getElementById('mark-import-input').click()" title="Import marks from a JSON file" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬆ Import</button>
@@ -3021,7 +3021,11 @@ function inferMarkIcon(m) {
 function renderMarkers() {
   marksLayerGroup.clearLayers();
   markerLayerById = {};
+  // Same group filter the sidebar list uses (mark-group-filter) — selecting
+  // "NSW FADs" there now scopes the map pins too, not just the list rows.
+  const filter = document.getElementById('mark-group-filter').value || 'All';
   marks.forEach(m => {
+    if (filter !== 'All' && (m.group || 'Ungrouped') !== filter) return;
     const col = markColor(m);
     const icon = inferMarkIcon(m);
     // Selected mark renders bigger, with a bright pulsing ring and raised
