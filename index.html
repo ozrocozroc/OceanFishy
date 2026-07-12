@@ -344,7 +344,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <div class="sep"></div>
   <span class="lbl">Tools</span>
   <button class="lb contours" id="b-contours" onclick="toggleContours()" title="Overlay real SLA contour lines on any layer, for comparison">〰 SLA contours</button>
-  <button class="lb contours" id="b-hotspots" onclick="toggleHotspots()" title="Analyze real SLA fronts, canyon-edge bathymetry and current speed in view, and flag the strongest combined signal points">🎯 Hotspots</button>
+  <button class="lb contours" id="b-hotspots" onclick="toggleHotspots()" title="Analyze real SST temperature breaks, SLA fronts, canyon-edge bathymetry and current speed in view, and flag the strongest combined signal points">🎯 Hotspots</button>
   <button class="lb ruler" id="b-ruler" onclick="toggleRuler()">📏 Ruler</button>
   <button class="lb" id="b-ruler-clear" onclick="clearRuler()" style="display:none">✕ Clear</button>
   <!-- Mobile-only sidebar drawer toggle. Used to float over the map (see
@@ -1092,14 +1092,15 @@ function eddyCoreIcon(slaM, kind) {
 
 // ── Fishing hotspot finder ──────────────────────────────────────────────────
 // Automates the manual cross-check done by hand for the Jervis Bay canyon
-// tuna mark: canyon-edge bathymetry (steep local depth change, not just
-// "deep"), SLA eddy-front strength (steep local SLA change, not just a high
-// absolute value — see the eddy-core badges above for that), and current
-// speed sitting in a workable band, combined into one score per grid cell
-// over the current map view. Three independent real-data fetches (SLA,
-// bathymetry, currents) run in parallel at a shared coarse grid — resolution
-// deliberately kept small since this fires three ERDDAP requests through the
-// CORS proxy chain at once.
+// tuna mark: SST temperature break (steep local SST change — the classic
+// pelagic-fishing signal), canyon-edge bathymetry (steep local depth change,
+// not just "deep"), SLA eddy-front strength (steep local SLA change, not
+// just a high absolute value — see the eddy-core badges above for that), and
+// current speed sitting in a workable band, combined into one score per grid
+// cell over the current map view. Four independent real-data fetches (SST,
+// SLA, bathymetry, currents) run in parallel at a shared coarse grid —
+// resolution deliberately kept small since this fires four ERDDAP requests
+// through the CORS proxy chain at once.
 const HOTSPOT_GRID_POINTS = 14;
 
 function nearestGridValue(latSet, lonSet, grid, lat, lon) {
@@ -1159,6 +1160,27 @@ async function fetchHotspotBathyGrid(bounds, maxPts) {
   return {latSet, lonSet, grid};
 }
 
+async function fetchHotspotSstGrid(bounds, maxPts) {
+  const latMin = Math.max(bounds.getSouth(), -89.9), latMax = Math.min(bounds.getNorth(), 89.9);
+  const lonMin = Math.max(bounds.getWest(), -179.9), lonMax = Math.min(bounds.getEast(), 179.9);
+  const NATIVE_RES = 0.01; // MUR SST, ~1km native — plenty finer than our target grid
+  const latStride = Math.max(1, Math.ceil((latMax - latMin) / NATIVE_RES / maxPts));
+  const lonStride = Math.max(1, Math.ceil((lonMax - lonMin) / NATIVE_RES / maxPts));
+  const latQ = `(${latMin.toFixed(4)}):${latStride}:(${latMax.toFixed(4)})`;
+  const lonQ = `(${lonMin.toFixed(4)}):${lonStride}:(${lonMax.toFixed(4)})`;
+  const target = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41.json?analysed_sst[(last)][${latQ}][${lonQ}]`;
+  const data = await fetchJsonViaCorsProxy(target);
+  const rows = data?.table?.rows || [];
+  const latSet = [...new Set(rows.map(r => r[1]))].sort((a, b) => a - b);
+  const lonSet = [...new Set(rows.map(r => r[2]))].sort((a, b) => a - b);
+  const idx = new Map();
+  latSet.forEach((v, i) => idx.set('lat' + v, i));
+  lonSet.forEach((v, j) => idx.set('lon' + v, j));
+  const grid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+  for (const r of rows) { if (r[3] == null) continue; grid[idx.get('lat' + r[1])][idx.get('lon' + r[2])] = r[3]; }
+  return {latSet, lonSet, grid};
+}
+
 async function fetchHotspotCurrentGrid(bounds, maxPts) {
   const latMin = Math.max(bounds.getSouth(), -89.9), latMax = Math.min(bounds.getNorth(), 89.9);
   const lonMin = Math.max(bounds.getWest(), -179.9), lonMax = Math.min(bounds.getEast(), 179.9);
@@ -1196,12 +1218,13 @@ function hotspotCurrentScore(kt) {
 
 async function updateHotspots(bounds) {
   const myReqId = ++hotspotReqId;
-  setStatus('Analyzing SLA fronts, bathymetry and currents in view…');
+  setStatus('Analyzing temperature breaks, SLA fronts, bathymetry and currents in view…');
   try {
-    const [sla, bathy, current] = await Promise.all([
+    const [sla, bathy, current, sst] = await Promise.all([
       fetchHotspotSlaGrid(bounds, HOTSPOT_GRID_POINTS),
       fetchHotspotBathyGrid(bounds, HOTSPOT_GRID_POINTS),
       fetchHotspotCurrentGrid(bounds, HOTSPOT_GRID_POINTS),
+      fetchHotspotSstGrid(bounds, HOTSPOT_GRID_POINTS),
     ]);
     if (myReqId !== hotspotReqId) return;
     hotspotGroup.clearLayers();
@@ -1228,7 +1251,13 @@ async function updateHotspots(bounds) {
         const curScore = hotspotCurrentScore(speed);
         if (curScore == null) continue;
 
-        candidates.push({lat, lon, slaCm: v * 100, slaGrad, depth: Math.abs(depth), depthGrad, speed, curScore});
+        const temp = nearestGridValue(sst.latSet, sst.lonSet, sst.grid, lat, lon);
+        const tempN = nearestGridValue(sst.latSet, sst.lonSet, sst.grid, sla.latSet[i + 1], lon);
+        const tempE = nearestGridValue(sst.latSet, sst.lonSet, sst.grid, lat, sla.lonSet[j + 1]);
+        if (temp == null || tempN == null || tempE == null) continue;
+        const sstGrad = Math.hypot(tempN - temp, tempE - temp);
+
+        candidates.push({lat, lon, slaCm: v * 100, slaGrad, depth: Math.abs(depth), depthGrad, speed, curScore, temp, sstGrad});
       }
     }
 
@@ -1237,12 +1266,21 @@ async function updateHotspots(bounds) {
       return;
     }
 
-    const maxSlaGrad = Math.max(...candidates.map(c => c.slaGrad));
+    // Temperature break gets the single biggest weight — a sharp SST
+    // gradient (not the absolute temperature) is the classic pelagic-fishing
+    // signal, arguably stronger than the SLA front alone. Bathymetry stays
+    // second (structure the fish relate to), SLA third (confirms an eddy is
+    // actually driving the thermal break rather than e.g. river outflow),
+    // current speed last (a workable-vs-unfishable gate more than a "best
+    // zone" indicator on its own).
+    const maxSlaGrad   = Math.max(...candidates.map(c => c.slaGrad));
     const maxDepthGrad = Math.max(...candidates.map(c => c.depthGrad));
+    const maxSstGrad   = Math.max(...candidates.map(c => c.sstGrad));
     candidates.forEach(c => {
-      c.score = 0.4 * (maxSlaGrad ? c.slaGrad / maxSlaGrad : 0)
-              + 0.35 * (maxDepthGrad ? c.depthGrad / maxDepthGrad : 0)
-              + 0.25 * c.curScore;
+      c.score = 0.35 * (maxSstGrad ? c.sstGrad / maxSstGrad : 0)
+              + 0.25 * (maxDepthGrad ? c.depthGrad / maxDepthGrad : 0)
+              + 0.20 * (maxSlaGrad ? c.slaGrad / maxSlaGrad : 0)
+              + 0.20 * c.curScore;
     });
     candidates.sort((a, b) => b.score - a.score);
 
@@ -1260,6 +1298,7 @@ async function updateHotspots(bounds) {
     picked.forEach((c, i) => {
       L.marker([c.lat, c.lon], {icon: hotspotIcon(i + 1)}).addTo(hotspotGroup).bindPopup(
         `<b>🎯 Hotspot #${i + 1} — score ${(c.score * 100).toFixed(0)}/100</b><br>` +
+        `SST: ${c.temp.toFixed(1)}°C, temp break ${(c.sstGrad).toFixed(2)}°C/cell<br>` +
         `Depth: ${c.depth.toFixed(0)}m (Δ${c.depthGrad.toFixed(0)}m to nearest cell — canyon/shelf-edge signal)<br>` +
         `SLA: ${c.slaCm >= 0 ? '+' : ''}${c.slaCm.toFixed(0)}cm, front strength ${(c.slaGrad * 100).toFixed(1)}cm/cell<br>` +
         `Current: ${c.speed.toFixed(2)} kt`
