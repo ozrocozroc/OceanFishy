@@ -41,7 +41,6 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 .lb.on.sst{background:rgba(232,87,58,.2);border-color:rgba(232,87,58,.5);color:#ff8c6e}
 .lb.on.chl{background:rgba(61,196,126,.16);border-color:rgba(61,196,126,.45);color:#5de09a}
 .lb.on.alt{background:rgba(107,142,255,.16);border-color:rgba(107,142,255,.45);color:#9bb0ff}
-.lb.on.base{background:rgba(42,159,214,.14);border-color:rgba(42,159,214,.4);color:var(--acc)}
 .lb.on.depth{background:rgba(58,124,165,.18);border-color:rgba(58,124,165,.5);color:#85c4e8}
 .lb.on.ruler{background:rgba(255,210,63,.16);border-color:rgba(255,210,63,.5);color:#ffd23f}
 .lb.on.contours{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.4);color:#fff}
@@ -311,15 +310,17 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 <!-- Layer bar -->
 <div id="lbar">
   <span class="lbl">Base</span>
-  <button class="lb base"    id="b-osm"  onclick="setBase('osm')">🗺 Street</button>
-  <button class="lb base"    id="b-ocean" onclick="setBase('ocean')">🌊 Ocean</button>
-  <button class="lb base on" id="b-sat"  onclick="setBase('sat')">🛰 Satellite</button>
-  <button class="lb base"    id="b-dark" onclick="setBase('dark')">🌑 Dark</button>
+  <select id="base-select" class="hsel" onchange="setBase(this.value)">
+    <option value="osm">🗺 Street</option>
+    <option value="ocean">🌊 Ocean</option>
+    <option value="sat" selected>🛰 Satellite</option>
+    <option value="dark">🌑 Dark</option>
+  </select>
   <div class="sep"></div>
   <span class="lbl">Ocean layer</span>
   <button class="lb sst"    id="b-sst" onclick="setLayer('sst')"><span class="bdot sst"></span>SST</button>
-  <button class="lb chl"    id="b-chl" onclick="setLayer('chl')" title="NOAA VIIRS weekly composite — ~2-3 week lag"><span class="bdot chl"></span>Chl (VIIRS)</button>
-  <button class="lb chl"    id="b-chlOlci" onclick="setLayer('chlOlci')" title="Copernicus Sentinel-3 OLCI daily — ~2-3 day lag"><span class="bdot chl"></span>Chl (OLCI)</button>
+  <button class="lb chl"    id="b-chl" onclick="setLayer('chl')" title="NOAA VIIRS weekly composite — ~2-3 week lag"><span class="bdot chl"></span>Chl VIIRS (~3wk)</button>
+  <button class="lb chl"    id="b-chlOlci" onclick="setLayer('chlOlci')" title="Copernicus Sentinel-3 OLCI daily — ~2-3 day lag"><span class="bdot chl"></span>Chl OLCI (2-3d)</button>
   <button class="lb alt"    id="b-alt" onclick="setLayer('alt')"><span class="bdot alt"></span>Altimetry</button>
   <button class="lb depth"  id="b-depth" onclick="setLayer('depth')"><span class="bdot depth"></span>Depth</button>
   <button class="lb on"     id="b-off" onclick="setLayer('off')">Off</button>
@@ -2348,8 +2349,7 @@ function setLayer(type) {
 
 function setBase(type) {
   curBase = type;
-  ['osm','ocean','sat','dark'].forEach(t => document.getElementById('b-'+t)?.classList.remove('on'));
-  document.getElementById('b-'+type)?.classList.add('on');
+  document.getElementById('base-select').value = type;
   buildBase(type);
 }
 
