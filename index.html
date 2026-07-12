@@ -55,20 +55,14 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 .mark-edit:hover{color:#fff;background:var(--surf2)}
 #b-marks-edit.on{background:var(--acc);color:#fff;border-color:var(--acc)}
 
-/* Current-speed legend — bigger by default; shrinks automatically while the
-   Forecast panel is open, since that docks across the bottom and leaves much
-   less vertical room above it for the legend to sit in without colliding. */
-#current-legend{padding:7px 10px;transition:padding .15s ease}
+/* Current-speed legend — now lives inside the sidebar's Legend panel (see
+   #current-legend in the markup) instead of floating over the map, so it
+   rides the sidebar's existing scroll/shrink handling and no longer needs
+   its own separate "compact while the forecast panel is open" variant. */
 #current-legend .cl-title{font-size:10px;margin-bottom:3px}
-#current-legend .cl-bar{height:8px;width:145px;transition:height .15s ease,width .15s ease}
+#current-legend .cl-bar{height:8px;width:100%}
 #current-legend .cl-labels{font-size:10px;margin-top:2px}
-#current-legend .cl-note{font-size:9px;margin-top:3px;white-space:nowrap;transition:font-size .15s ease}
-#current-legend.compact{padding:4px 6px}
-#current-legend.compact .cl-title{font-size:7px;margin-bottom:2px}
-#current-legend.compact .cl-bar{height:5px;width:90px}
-#current-legend.compact .cl-labels{font-size:7px;margin-top:1px}
-#current-legend.compact .cl-note{font-size:6px}
-#current-legend.compact .cl-note{font-size:7px;margin-top:3px;max-width:100px}
+#current-legend .cl-note{font-size:9px;margin-top:3px}
 
 .icon-pick{width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;background:var(--surf2);border:1px solid var(--bdrs);border-radius:6px;cursor:pointer}
 .icon-pick:hover{border-color:var(--acc)}
@@ -365,15 +359,6 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
        Anchored top-left below the zoom control — bottom-left collided with the
        Forecast panel (bottom-docked, full-width) on desktop and with the mobile
        sidebar drawer (also bottom-docked) on small screens. -->
-  <div id="current-legend" style="display:none;position:absolute;top:120px;left:10px;z-index:460;background:rgba(18,28,46,.9);border:1px solid var(--bdrs);border-radius:6px;backdrop-filter:blur(6px)">
-    <div class="cl-title" style="color:var(--dim);text-transform:uppercase;letter-spacing:.05em">Current (kt)</div>
-    <div class="cl-bar" style="border-radius:3px;background:linear-gradient(to right,rgb(36,60,150),rgb(45,120,196),rgb(74,177,206),rgb(112,204,171),rgb(171,221,164),rgb(230,245,152),rgb(254,224,139),rgb(253,174,97),rgb(213,62,79))"></div>
-    <div class="cl-labels" style="display:flex;justify-content:space-between;color:var(--dim)">
-      <span>0</span><span>1</span><span>2</span><span>3</span><span>4+</span>
-    </div>
-    <div class="cl-note" style="color:var(--dim)">Live only — no forecast for currents</div>
-  </div>
-
   <!-- Sidebar -->
   <div id="sb">
     <div class="panel">
@@ -383,6 +368,17 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
       </div>
       <div id="lgrd"></div>
       <div id="llabs"><span id="lmin"></span><span id="lmid"></span><span id="lmax"></span></div>
+      <!-- Was a separate floating card pinned top-left of the map (opposite
+           corner from this sidebar) — merged in here so both legends live
+           in one place instead of two disconnected UI locations. -->
+      <div id="current-legend" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--bdr)">
+        <div class="cl-title" style="color:var(--dim);text-transform:uppercase;letter-spacing:.05em">Current (kt)</div>
+        <div class="cl-bar" style="border-radius:3px;background:linear-gradient(to right,rgb(36,60,150),rgb(45,120,196),rgb(74,177,206),rgb(112,204,171),rgb(171,221,164),rgb(230,245,152),rgb(254,224,139),rgb(253,174,97),rgb(213,62,79))"></div>
+        <div class="cl-labels" style="display:flex;justify-content:space-between;color:var(--dim)">
+          <span>0</span><span>1</span><span>2</span><span>3</span><span>4+</span>
+        </div>
+        <div class="cl-note" style="color:var(--dim)">Live only — no forecast for currents</div>
+      </div>
     </div>
 
     <!-- Live values panel — shows last clicked value for all layers -->
@@ -2158,7 +2154,6 @@ let sbForecastOpenPrev = false;
 let sbConditionsWasExpanded = false;
 function updateCurrentLegendSize() {
   const forecastOpen = document.getElementById('forecast-panel').style.display !== 'none';
-  document.getElementById('current-legend').classList.toggle('compact', forecastOpen);
   document.getElementById('map').classList.toggle('forecast-open', forecastOpen);
   syncSidebarToForecastPanel();
 
