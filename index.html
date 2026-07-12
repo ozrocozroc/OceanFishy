@@ -2115,8 +2115,15 @@ function renderForecastPanel(wx, marine) {
   // Solid dart / navigation-pin arrow — a single notched-tail polygon reads
   // unambiguously at any rotation, unlike a bare triangle (no visual "tail"
   // to anchor the eye) — same shape GPS heading indicators use.
+  // At rotate(0deg) the dart's tip points straight up (North) at rest, so
+  // rotating by the raw "from" bearing directly (no +180) points it toward
+  // the named source direction — same convention as compassDir()'s arrows
+  // in Live Readings/the click popup (e.g. both point "up" for a wind FROM
+  // the north). A stale +180 flip here (leftover from the same now-fixed
+  // flow-toward bug, see getRealWind/getRealSwell) had this grid's arrows
+  // pointing 180° opposite the popup's for the same hour and data.
   const dirArrow = (deg, size) => deg == null ? '' : `
-    <svg width="${size}" height="${size}" viewBox="0 0 20 20" style="display:inline-block;vertical-align:middle;transform:rotate(${deg+180}deg)">
+    <svg width="${size}" height="${size}" viewBox="0 0 20 20" style="display:inline-block;vertical-align:middle;transform:rotate(${deg}deg)">
       <polygon points="10,1 17,19 10,14.5 3,19" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/>
     </svg>`;
 
