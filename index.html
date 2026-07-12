@@ -286,7 +286,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 
 <!-- Header -->
 <header id="hdr">
-  <div style="display:flex;align-items:center">
+  <div style="display:flex;align-items:center;cursor:pointer;user-select:none" onclick="handleLogoClick()" title="">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2a9fd6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-2.5 3-2.5 6 0 9s2.5 6 0 9M12 3c2.5 3 2.5 6 0 9s-2.5 6 0 9"/>
     </svg>
@@ -344,7 +344,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <div class="sep"></div>
   <span class="lbl">Tools</span>
   <button class="lb contours" id="b-contours" onclick="toggleContours()" title="Overlay real SLA contour lines on any layer, for comparison">〰 SLA contours</button>
-  <button class="lb contours" id="b-hotspots" onclick="toggleHotspots()" title="Analyze real SST temperature breaks, chlorophyll fronts, SLA fronts, canyon-edge bathymetry and current speed in view, and flag the strongest combined signal points">🎯 Hotspots</button>
+  <button class="lb contours" id="b-hotspots" onclick="toggleHotspots()" title="Analyze real SST temperature breaks, chlorophyll fronts, SLA fronts, canyon-edge bathymetry and current speed in view, and flag the strongest combined signal points" style="display:none">🎯 Hotspots</button>
   <button class="lb ruler" id="b-ruler" onclick="toggleRuler()">📏 Ruler</button>
   <button class="lb" id="b-ruler-clear" onclick="clearRuler()" style="display:none">✕ Clear</button>
   <!-- Mobile-only sidebar drawer toggle. Used to float over the map (see
@@ -1400,6 +1400,29 @@ function hotspotIcon(rank) {
     html: `<div style="transform:translate(-50%,-50%);width:26px;height:26px;border-radius:50%;background:#eda100;color:#412402;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.5);border:2px solid rgba(255,255,255,.9)">${rank}</div>`,
     iconSize: [0, 0],
   });
+}
+
+// Easter egg — the Hotspots tool is powerful but a lot of screen-reading for
+// a casual user (5 live data fetches, a scoring breakdown per pin), so it's
+// hidden behind a triple-click on the logo rather than sitting in the Tools
+// bar by default. Once found, it stays unlocked for that browser (same
+// localStorage pattern as everything else in Known Marks/forecast settings).
+const HOTSPOT_UNLOCK_KEY = 'oceanfishy_hotspots_unlocked';
+let logoClickCount = 0, logoClickTimer = null;
+function handleLogoClick() {
+  if (localStorage.getItem(HOTSPOT_UNLOCK_KEY)) return; // already unlocked, nothing to do
+  logoClickCount++;
+  clearTimeout(logoClickTimer);
+  logoClickTimer = setTimeout(() => { logoClickCount = 0; }, 700);
+  if (logoClickCount >= 3) {
+    logoClickCount = 0;
+    localStorage.setItem(HOTSPOT_UNLOCK_KEY, '1');
+    document.getElementById('b-hotspots').style.display = '';
+    setStatus('🎯 Hotspot finder unlocked!');
+  }
+}
+if (localStorage.getItem(HOTSPOT_UNLOCK_KEY)) {
+  document.getElementById('b-hotspots').style.display = '';
 }
 
 function toggleHotspots() {
