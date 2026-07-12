@@ -404,6 +404,10 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
         <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#3a7ca5;display:inline-block;margin-right:5px"></span>Depth <span style="font-size:9px;color:var(--dim)">(live)</span></span>
         <div style="text-align:right"><div class="sv" id="live-depth" style="color:var(--dim)">—</div></div>
       </div>
+      <div class="sr">
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#9bb0ff;display:inline-block;margin-right:5px"></span>Current <span style="font-size:9px;color:var(--dim)">(live)</span></span>
+        <div style="text-align:right"><div class="sv" id="live-cur" style="color:var(--dim)">—</div></div>
+      </div>
       <div id="live-coord" style="font-size:10px;color:var(--dim);margin-top:7px;border-top:1px solid var(--bdr);padding-top:6px">No point selected</div>
       <div id="live-note" style="font-size:11px;color:var(--dim);margin-top:5px;line-height:1.4"></div>
     </div>
@@ -2371,6 +2375,27 @@ async function updateLiveReadings(lat, lng) {
     document.getElementById('live-depth').textContent = 'n/a';
     document.getElementById('live-depth').style.color = 'var(--dim)';
   }
+
+  // Fetch real current speed/direction async — works whether or not the
+  // Currents overlay is toggled on, same as SLA/Depth above.
+  document.getElementById('live-cur').textContent = '…';
+  document.getElementById('live-cur').style.color = 'var(--acc)';
+  try {
+    const cur = await getRealCurrent(lat, lng);
+    if (cur === null) {
+      document.getElementById('live-cur').textContent = 'n/a';
+      document.getElementById('live-cur').style.color = 'var(--dim)';
+    } else {
+      document.getElementById('live-cur').textContent = cur.speedKt.toFixed(2) + ' kt · ' + cur.dirDeg.toFixed(0) + '°';
+      document.getElementById('live-cur').style.color = 'var(--txt)';
+      if (curLayer === 'off') {
+        document.getElementById('live-note').innerHTML = currentNote(cur.speedKt);
+      }
+    }
+  } catch(err) {
+    document.getElementById('live-cur').textContent = 'n/a';
+    document.getElementById('live-cur').style.color = 'var(--dim)';
+  }
 }
 
 // ── GEBCO GetFeatureInfo — real water depth at a lat/lng point ────────────────
@@ -2415,6 +2440,30 @@ async function getRealSla(lat, lng) {
 
 function slaNote(cm) {
   return cm>10?'↑ Warm eddy — concentrate bait & gamefish':cm>0?'→ Slight positive — stable conditions':cm>-10?'→ Slight negative — cooler water':'↓ Cold eddy — deepwater upwelling';
+}
+
+// ── Real current speed/direction at a lat/lng point ────────────────────────
+// Same idea as getRealSla — a direct single-point ERDDAP query so the Live
+// Readings panel shows the same real current data as the Currents overlay,
+// independent of whether that overlay is actually toggled on. Uses "(last)"
+// rather than curDate, same reason as updateCurrents(): this dataset's own
+// lag is often a day+ behind SST/altimetry, so requesting curDate's exact
+// date can 404.
+async function getRealCurrent(lat, lng) {
+  const latR = lat.toFixed(3), lngR = lng.toFixed(3);
+  const target = `${CURRENT_DS.host}/erddap/griddap/${CURRENT_DS.datasetId}.json?u_current[(last)][(${latR})][(${lngR})],v_current[(last)][(${latR})][(${lngR})]`;
+  const data = await fetchJsonViaCorsProxy(target);
+  const row = data?.table?.rows?.[0];
+  if (!row) return null;
+  const [, , , u, v] = row;
+  if (u == null || v == null) return null;
+  const speedMs = Math.sqrt(u*u + v*v);
+  const dirDeg = (Math.atan2(u, v) * 180 / Math.PI + 360) % 360; // bearing the current is flowing toward
+  return { speedKt: speedMs * 1.94384, dirDeg };
+}
+
+function currentNote(kt) {
+  return kt<0.2 ? '→ Near-slack — minimal drift' : kt<0.5 ? '→ Light current' : kt<1 ? '→ Moderate current — bait holds, good drift speed' : '→ Strong current — consider drift/anchor strategy';
 }
 
 // ── Real "latest available" date detection ────────────────────────────────────
