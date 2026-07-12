@@ -402,6 +402,14 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
         <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#9bb0ff;display:inline-block;margin-right:5px"></span>Current <span style="font-size:9px;color:var(--dim)">(live)</span></span>
         <div style="text-align:right"><div class="sv" id="live-cur" style="color:var(--dim)">—</div></div>
       </div>
+      <div class="sr">
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#8fe3b0;display:inline-block;margin-right:5px"></span>Wind <span style="font-size:9px;color:var(--dim)">(live)</span></span>
+        <div style="text-align:right"><div class="sv" id="live-wind" style="color:var(--dim)">—</div></div>
+      </div>
+      <div class="sr">
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#3aa0d8;display:inline-block;margin-right:5px"></span>Swell <span style="font-size:9px;color:var(--dim)">(live)</span></span>
+        <div style="text-align:right"><div class="sv" id="live-swell" style="color:var(--dim)">—</div></div>
+      </div>
       <div id="live-coord" style="font-size:10px;color:var(--dim);margin-top:7px;border-top:1px solid var(--bdr);padding-top:6px">No point selected</div>
       <div id="live-note" style="font-size:11px;color:var(--dim);margin-top:5px;line-height:1.4"></div>
     </div>
@@ -2446,6 +2454,8 @@ function syncLivePopup() {
     `SLA: ${get('live-alt')}<br>` +
     `Depth: ${get('live-depth')}<br>` +
     `Current: ${get('live-cur')}<br>` +
+    `Wind: ${get('live-wind')}<br>` +
+    `Swell: ${get('live-swell')}<br>` +
     `<span style="color:var(--dim);font-size:10px">${get('live-coord')}</span>` +
     (note ? `<br>${note}` : '');
   clickMark.getPopup().setContent(html);
@@ -2602,6 +2612,41 @@ async function updateLiveReadings(lat, lng) {
     document.getElementById('live-cur').style.color = 'var(--dim)';
   }
   syncLivePopup();
+
+  // Wind + Swell — replaces the removed map overlays with a single live
+  // reading at this exact point instead of a whole grid of arrows. Fired
+  // together (Promise.all) rather than sequentially so this doesn't add two
+  // more full round-trips on top of the SLA/Depth/Current chain above.
+  document.getElementById('live-wind').textContent = '…';
+  document.getElementById('live-wind').style.color = 'var(--acc)';
+  document.getElementById('live-swell').textContent = '…';
+  document.getElementById('live-swell').style.color = 'var(--acc)';
+  try {
+    const [wind, swell] = await Promise.all([
+      getRealWind(lat, lng).catch(() => null),
+      getRealSwell(lat, lng).catch(() => null),
+    ]);
+    if (wind === null) {
+      document.getElementById('live-wind').textContent = 'n/a';
+      document.getElementById('live-wind').style.color = 'var(--dim)';
+    } else {
+      document.getElementById('live-wind').textContent = Math.round(wind.speedKmh) + ' km/h · ' + wind.dirDeg.toFixed(0) + '°' + (wind.gustKmh != null ? ' (gust ' + Math.round(wind.gustKmh) + ')' : '');
+      document.getElementById('live-wind').style.color = 'var(--txt)';
+    }
+    if (swell === null) {
+      document.getElementById('live-swell').textContent = 'n/a';
+      document.getElementById('live-swell').style.color = 'var(--dim)';
+    } else {
+      document.getElementById('live-swell').textContent = swell.heightM.toFixed(1) + ' m · ' + swell.dirDeg.toFixed(0) + '°';
+      document.getElementById('live-swell').style.color = 'var(--txt)';
+    }
+  } catch(err) {
+    document.getElementById('live-wind').textContent = 'n/a';
+    document.getElementById('live-wind').style.color = 'var(--dim)';
+    document.getElementById('live-swell').textContent = 'n/a';
+    document.getElementById('live-swell').style.color = 'var(--dim)';
+  }
+  syncLivePopup();
 }
 
 // ── SRTM15+ GetFeatureInfo — real water depth at a lat/lng point ──────────────
@@ -2670,6 +2715,37 @@ async function getRealCurrent(lat, lng) {
 
 function currentNote(kt) {
   return kt<0.2 ? '→ Near-slack — minimal drift' : kt<0.5 ? '→ Light current' : kt<1 ? '→ Moderate current — bait holds, good drift speed' : '→ Strong current — consider drift/anchor strategy';
+}
+
+// ── Real wind/swell at a single point (Open-Meteo — free, no key, real CORS,
+// no proxy needed) ──────────────────────────────────────────────────────────
+// Replaces the removed Wind/Swell map overlays — those drew arrows across a
+// whole grid using the same shape/position, which got unreadable with both
+// on at once, and cluttered small screens especially. A single live number
+// at the exact point you clicked does the same job without the map mess.
+async function getRealWind(lat, lng) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lng.toFixed(3)}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('wind fetch failed: ' + resp.status);
+  const data = await resp.json();
+  const c = data.current;
+  if (!c || c.wind_speed_10m == null || c.wind_direction_10m == null) return null;
+  // wind_direction is meteorological "from" bearing — +180 to point toward
+  // where the wind is actually blowing, matching the Current reading's
+  // flow-direction convention.
+  const dirDeg = (c.wind_direction_10m + 180) % 360;
+  return { speedKmh: c.wind_speed_10m, gustKmh: c.wind_gusts_10m, dirDeg };
+}
+
+async function getRealSwell(lat, lng) {
+  const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat.toFixed(3)}&longitude=${lng.toFixed(3)}&current=swell_wave_height,swell_wave_direction`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('swell fetch failed: ' + resp.status);
+  const data = await resp.json();
+  const c = data.current;
+  if (!c || c.swell_wave_height == null || c.swell_wave_direction == null) return null;
+  const dirDeg = (c.swell_wave_direction + 180) % 360;
+  return { heightM: c.swell_wave_height, dirDeg };
 }
 
 // ── Real "latest available" date detection ────────────────────────────────────
