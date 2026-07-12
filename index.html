@@ -74,6 +74,9 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 .icon-pick:hover{border-color:var(--acc)}
 .icon-pick.on{background:rgba(42,159,214,.2);border-color:var(--acc)}
 .bdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+/* Leaflet's default .leaflet-div-icon has its own white background + border
+   baked in — without this reset it shows as a box behind the colored pill. */
+.eddy-core-badge{background:transparent;border:none}
 .bdot.sst{background:var(--sst)}.bdot.chl{background:var(--chl)}.bdot.alt{background:var(--alt)}.bdot.depth{background:#3a7ca5}
 
 /* Date bar */
@@ -882,7 +885,15 @@ function removeOverlay() {
 // so a direct fetch() of the raw grid needed to compute contours is blocked.
 // Route it through fetchJsonViaCorsProxy() — the only way to get real
 // numeric data client-side from a static page with no server of its own.
-const CONTOUR_LEVELS = [-0.2, -0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15, 0.2];
+// Fine spacing near zero (weak-eddy/front detail), coarser further out —
+// strong eddies off the NSW coast commonly run to +0.7m/-0.4m (confirmed
+// directly against a real point: Jervis Bay canyon area hit +0.76m), and the
+// old ±0.2m cap meant anything stronger just showed as one saturated outer
+// ring with no sense of how strong the core actually was.
+const CONTOUR_LEVELS = [-0.4, -0.3, -0.2, -0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7];
+// Above this |SLA|, a contour ring alone doesn't communicate "this is a
+// strong eddy" clearly enough — flag the local extremum directly.
+const EDDY_CORE_THRESHOLD = 0.3;
 
 function marchingSquares(grid, lats, lons, level) {
   const segments = [];
@@ -1041,10 +1052,37 @@ async function updateContours(dateToUse, bounds) {
         }).addTo(contourGroup);
       }
     }
+
+    // Flag the strongest warm-core and cold-core points in view, if either
+    // clears EDDY_CORE_THRESHOLD — a ring of contour lines alone doesn't
+    // tell you at a glance whether you're looking at a 15cm ripple or a
+    // 70cm eddy core, which is the actual "worth fishing" signal.
+    let warmPeak = null, coldPeak = null;
+    for (let i = 0; i < latSet.length; i++) {
+      for (let j = 0; j < lonSet.length; j++) {
+        const v = grid[i][j];
+        if (v == null) continue;
+        if (v >= EDDY_CORE_THRESHOLD && (!warmPeak || v > warmPeak.v)) warmPeak = {v, lat: latSet[i], lng: lonSet[j]};
+        if (v <= -EDDY_CORE_THRESHOLD && (!coldPeak || v < coldPeak.v)) coldPeak = {v, lat: latSet[i], lng: lonSet[j]};
+      }
+    }
+    if (warmPeak) L.marker([warmPeak.lat, warmPeak.lng], {icon: eddyCoreIcon(warmPeak.v, 'warm'), interactive: false, keyboard: false}).addTo(contourGroup);
+    if (coldPeak) L.marker([coldPeak.lat, coldPeak.lng], {icon: eddyCoreIcon(coldPeak.v, 'cold'), interactive: false, keyboard: false}).addTo(contourGroup);
   } catch (err) {
     if (myReqId !== contourReqId) return;
     console.log('OceanFishy contour fetch failed:', err.message);
   }
+}
+
+function eddyCoreIcon(slaM, kind) {
+  const cm = Math.round(slaM * 100);
+  const label = kind === 'warm' ? `🔴 Warm eddy core ${cm>=0?'+':''}${cm}cm` : `🔵 Cold core ${cm}cm — upwelling`;
+  const bg = kind === 'warm' ? '#e34948' : '#2a78d6';
+  return L.divIcon({
+    className: 'eddy-core-badge',
+    html: `<div style="transform:translate(-50%,-50%);background:${bg};color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:10px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.5);border:1.5px solid rgba(255,255,255,.85)">${label}</div>`,
+    iconSize: [0, 0],
+  });
 }
 
 // ── Ocean current — animated particle flow (Windy-style) ──────────────────────
