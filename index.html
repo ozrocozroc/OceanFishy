@@ -77,6 +77,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 /* Leaflet's default .leaflet-div-icon has its own white background + border
    baked in — without this reset it shows as a box behind the colored pill. */
 .eddy-core-badge{background:transparent;border:none}
+.hotspot-badge{background:transparent;border:none}
 .bdot.sst{background:var(--sst)}.bdot.chl{background:var(--chl)}.bdot.alt{background:var(--alt)}.bdot.depth{background:#3a7ca5}
 
 /* Date bar */
@@ -343,6 +344,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <div class="sep"></div>
   <span class="lbl">Tools</span>
   <button class="lb contours" id="b-contours" onclick="toggleContours()" title="Overlay real SLA contour lines on any layer, for comparison">〰 SLA contours</button>
+  <button class="lb contours" id="b-hotspots" onclick="toggleHotspots()" title="Analyze real SLA fronts, canyon-edge bathymetry and current speed in view, and flag the strongest combined signal points">🎯 Hotspots</button>
   <button class="lb ruler" id="b-ruler" onclick="toggleRuler()">📏 Ruler</button>
   <button class="lb" id="b-ruler-clear" onclick="clearRuler()" style="display:none">✕ Clear</button>
   <!-- Mobile-only sidebar drawer toggle. Used to float over the map (see
@@ -672,6 +674,8 @@ let curDate    = todayStr();
 let oceanOverlay = null;
 let oceanLayerReqId = 0;
 let showContours = false;
+let showHotspots = false;
+let hotspotReqId = 0;
 let loadTimer    = null;
 let overlayRefreshTimer = null;
 let clickMark    = null;
@@ -728,6 +732,7 @@ L.DomEvent.disableScrollPropagation(document.getElementById('sb'));
 let baseLayer = null, baseLayer2 = null;
 const markGroup = L.layerGroup().addTo(map);
 const contourGroup = L.layerGroup().addTo(map);
+const hotspotGroup = L.layerGroup().addTo(map);
 let contourReqId = 0;
 let currentReqId = 0;
 let showCurrents = false;
@@ -1083,6 +1088,211 @@ function eddyCoreIcon(slaM, kind) {
     html: `<div style="transform:translate(-50%,-50%);background:${bg};color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:10px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.5);border:1.5px solid rgba(255,255,255,.85)">${label}</div>`,
     iconSize: [0, 0],
   });
+}
+
+// ── Fishing hotspot finder ──────────────────────────────────────────────────
+// Automates the manual cross-check done by hand for the Jervis Bay canyon
+// tuna mark: canyon-edge bathymetry (steep local depth change, not just
+// "deep"), SLA eddy-front strength (steep local SLA change, not just a high
+// absolute value — see the eddy-core badges above for that), and current
+// speed sitting in a workable band, combined into one score per grid cell
+// over the current map view. Three independent real-data fetches (SLA,
+// bathymetry, currents) run in parallel at a shared coarse grid — resolution
+// deliberately kept small since this fires three ERDDAP requests through the
+// CORS proxy chain at once.
+const HOTSPOT_GRID_POINTS = 14;
+
+function nearestGridValue(latSet, lonSet, grid, lat, lon) {
+  let bi = 0, bd = Infinity;
+  for (let i = 0; i < latSet.length; i++) { const d = Math.abs(latSet[i] - lat); if (d < bd) { bd = d; bi = i; } }
+  let bj = 0, bd2 = Infinity;
+  for (let j = 0; j < lonSet.length; j++) { const d = Math.abs(lonSet[j] - lon); if (d < bd2) { bd2 = d; bj = j; } }
+  return grid[bi] ? grid[bi][bj] : null;
+}
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371, p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+  const dp = (lat2 - lat1) * Math.PI / 180, dl = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+async function fetchHotspotSlaGrid(bounds, maxPts) {
+  const latMin = Math.max(bounds.getSouth(), -89.9), latMax = Math.min(bounds.getNorth(), 89.9);
+  const lonMin = Math.max(bounds.getWest(), -179.9), lonMax = Math.min(bounds.getEast(), 179.9);
+  const NATIVE_RES = 0.25;
+  const latStride = Math.max(1, Math.ceil((latMax - latMin) / NATIVE_RES / maxPts));
+  const lonStride = Math.max(1, Math.ceil((lonMax - lonMin) / NATIVE_RES / maxPts));
+  const latQ = `(${latMin.toFixed(4)}):${latStride}:(${latMax.toFixed(4)})`;
+  const lonQ = `(${lonMin.toFixed(4)}):${lonStride}:(${lonMax.toFixed(4)})`;
+  const target = `https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.json?sla[(last)][${latQ}][${lonQ}]`;
+  const data = await fetchJsonViaCorsProxy(target);
+  const rows = data?.table?.rows || [];
+  const latSet = [...new Set(rows.map(r => r[1]))].sort((a, b) => a - b);
+  const lonSet = [...new Set(rows.map(r => r[2]))].sort((a, b) => a - b);
+  const idx = new Map();
+  latSet.forEach((v, i) => idx.set('lat' + v, i));
+  lonSet.forEach((v, j) => idx.set('lon' + v, j));
+  const grid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+  for (const r of rows) { if (r[3] == null) continue; grid[idx.get('lat' + r[1])][idx.get('lon' + r[2])] = r[3]; }
+  return {latSet, lonSet, grid};
+}
+
+async function fetchHotspotBathyGrid(bounds, maxPts) {
+  const latMin = Math.max(bounds.getSouth(), -89.9), latMax = Math.min(bounds.getNorth(), 89.9);
+  const lonMin = Math.max(bounds.getWest(), -179.9), lonMax = Math.min(bounds.getEast(), 179.9);
+  const NATIVE_RES = 1 / 60;
+  const latStride = Math.max(1, Math.ceil((latMax - latMin) / NATIVE_RES / maxPts));
+  const lonStride = Math.max(1, Math.ceil((lonMax - lonMin) / NATIVE_RES / maxPts));
+  const latQ = `(${latMin.toFixed(4)}):${latStride}:(${latMax.toFixed(4)})`;
+  const lonQ = `(${lonMin.toFixed(4)}):${lonStride}:(${lonMax.toFixed(4)})`;
+  const target = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/etopo360.json?altitude[${latQ}][${lonQ}]`;
+  const data = await fetchJsonViaCorsProxy(target);
+  const rows = data?.table?.rows || [];
+  const latSet = [...new Set(rows.map(r => r[0]))].sort((a, b) => a - b);
+  const lonSet = [...new Set(rows.map(r => r[1]))].sort((a, b) => a - b);
+  const idx = new Map();
+  latSet.forEach((v, i) => idx.set('lat' + v, i));
+  lonSet.forEach((v, j) => idx.set('lon' + v, j));
+  const grid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+  for (const r of rows) { if (r[2] == null) continue; grid[idx.get('lat' + r[0])][idx.get('lon' + r[1])] = r[2]; }
+  return {latSet, lonSet, grid};
+}
+
+async function fetchHotspotCurrentGrid(bounds, maxPts) {
+  const latMin = Math.max(bounds.getSouth(), -89.9), latMax = Math.min(bounds.getNorth(), 89.9);
+  const lonMin = Math.max(bounds.getWest(), -179.9), lonMax = Math.min(bounds.getEast(), 179.9);
+  const NATIVE_RES = 0.25;
+  const latStride = Math.max(1, Math.ceil((latMax - latMin) / NATIVE_RES / maxPts));
+  const lonStride = Math.max(1, Math.ceil((lonMax - lonMin) / NATIVE_RES / maxPts));
+  const latQ = `(${latMin.toFixed(4)}):${latStride}:(${latMax.toFixed(4)})`;
+  const lonQ = `(${lonMin.toFixed(4)}):${lonStride}:(${lonMax.toFixed(4)})`;
+  const target = `${CURRENT_DS.host}/erddap/griddap/${CURRENT_DS.datasetId}.json?u_current[(last)][${latQ}][${lonQ}],v_current[(last)][${latQ}][${lonQ}]`;
+  const data = await fetchJsonViaCorsProxy(target);
+  const rows = data?.table?.rows || [];
+  const latSet = [...new Set(rows.map(r => r[1]))].sort((a, b) => a - b);
+  const lonSet = [...new Set(rows.map(r => r[2]))].sort((a, b) => a - b);
+  const idx = new Map();
+  latSet.forEach((v, i) => idx.set('lat' + v, i));
+  lonSet.forEach((v, j) => idx.set('lon' + v, j));
+  const grid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+  for (const r of rows) {
+    const u = r[3], v = r[4];
+    if (u == null || v == null) continue;
+    grid[idx.get('lat' + r[1])][idx.get('lon' + r[2])] = Math.sqrt(u * u + v * v) * 1.94384;
+  }
+  return {latSet, lonSet, grid};
+}
+
+// Bell curve peaking at 0.7kt — enough flow to hold a bait/berley line and
+// keep a front sharp, without being so strong it's unfishable. Near-slack
+// water gets a low flat score rather than zero, since a workable drift can
+// still exist there; the curve is the "sweet spot" signal, not a hard cutoff.
+function hotspotCurrentScore(kt) {
+  if (kt == null) return null;
+  if (kt < 0.15) return 0.1;
+  return Math.max(0, 1 - Math.abs(kt - 0.7) / 1.1);
+}
+
+async function updateHotspots(bounds) {
+  const myReqId = ++hotspotReqId;
+  setStatus('Analyzing SLA fronts, bathymetry and currents in view…');
+  try {
+    const [sla, bathy, current] = await Promise.all([
+      fetchHotspotSlaGrid(bounds, HOTSPOT_GRID_POINTS),
+      fetchHotspotBathyGrid(bounds, HOTSPOT_GRID_POINTS),
+      fetchHotspotCurrentGrid(bounds, HOTSPOT_GRID_POINTS),
+    ]);
+    if (myReqId !== hotspotReqId) return;
+    hotspotGroup.clearLayers();
+    if (sla.latSet.length < 3 || sla.lonSet.length < 3) {
+      setStatus('Hotspot finder: zoom out slightly — not enough grid points in view.');
+      return;
+    }
+
+    const candidates = [];
+    for (let i = 1; i < sla.latSet.length - 1; i++) {
+      for (let j = 1; j < sla.lonSet.length - 1; j++) {
+        const lat = sla.latSet[i], lon = sla.lonSet[j];
+        const v = sla.grid[i][j], vN = sla.grid[i + 1][j], vE = sla.grid[i][j + 1];
+        if (v == null || vN == null || vE == null) continue;
+        const slaGrad = Math.hypot(vN - v, vE - v);
+
+        const depth = nearestGridValue(bathy.latSet, bathy.lonSet, bathy.grid, lat, lon);
+        const depthN = nearestGridValue(bathy.latSet, bathy.lonSet, bathy.grid, sla.latSet[i + 1], lon);
+        const depthE = nearestGridValue(bathy.latSet, bathy.lonSet, bathy.grid, lat, sla.lonSet[j + 1]);
+        if (depth == null || depth > 0 || depthN == null || depthE == null) continue; // land or no data
+        const depthGrad = Math.hypot(depthN - depth, depthE - depth);
+
+        const speed = nearestGridValue(current.latSet, current.lonSet, current.grid, lat, lon);
+        const curScore = hotspotCurrentScore(speed);
+        if (curScore == null) continue;
+
+        candidates.push({lat, lon, slaCm: v * 100, slaGrad, depth: Math.abs(depth), depthGrad, speed, curScore});
+      }
+    }
+
+    if (!candidates.length) {
+      setStatus('Hotspot finder: no usable signal in this view — try an area with more open water.');
+      return;
+    }
+
+    const maxSlaGrad = Math.max(...candidates.map(c => c.slaGrad));
+    const maxDepthGrad = Math.max(...candidates.map(c => c.depthGrad));
+    candidates.forEach(c => {
+      c.score = 0.4 * (maxSlaGrad ? c.slaGrad / maxSlaGrad : 0)
+              + 0.35 * (maxDepthGrad ? c.depthGrad / maxDepthGrad : 0)
+              + 0.25 * c.curScore;
+    });
+    candidates.sort((a, b) => b.score - a.score);
+
+    // Greedy non-max suppression — otherwise the top handful of picks all
+    // cluster on the same eddy/canyon feature instead of surfacing distinct
+    // zones worth checking.
+    const MIN_SEPARATION_KM = 12, MAX_HOTSPOTS = 3;
+    const picked = [];
+    for (const c of candidates) {
+      if (picked.some(p => haversineKm(p.lat, p.lon, c.lat, c.lon) < MIN_SEPARATION_KM)) continue;
+      picked.push(c);
+      if (picked.length >= MAX_HOTSPOTS) break;
+    }
+
+    picked.forEach((c, i) => {
+      L.marker([c.lat, c.lon], {icon: hotspotIcon(i + 1)}).addTo(hotspotGroup).bindPopup(
+        `<b>🎯 Hotspot #${i + 1} — score ${(c.score * 100).toFixed(0)}/100</b><br>` +
+        `Depth: ${c.depth.toFixed(0)}m (Δ${c.depthGrad.toFixed(0)}m to nearest cell — canyon/shelf-edge signal)<br>` +
+        `SLA: ${c.slaCm >= 0 ? '+' : ''}${c.slaCm.toFixed(0)}cm, front strength ${(c.slaGrad * 100).toFixed(1)}cm/cell<br>` +
+        `Current: ${c.speed.toFixed(2)} kt`
+      );
+    });
+
+    setStatus(picked.length
+      ? `Hotspot finder: found ${picked.length} candidate zone${picked.length > 1 ? 's' : ''} — click a marker for details`
+      : 'Hotspot finder: no strong combined signal in this view');
+  } catch (err) {
+    if (myReqId !== hotspotReqId) return;
+    console.log('OceanFishy hotspot analysis failed:', err.message);
+    setStatus('Hotspot finder unavailable right now — one of the data sources didn’t respond in time.');
+  }
+}
+
+function hotspotIcon(rank) {
+  return L.divIcon({
+    className: 'hotspot-badge',
+    html: `<div style="transform:translate(-50%,-50%);width:26px;height:26px;border-radius:50%;background:#eda100;color:#412402;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.5);border:2px solid rgba(255,255,255,.9)">${rank}</div>`,
+    iconSize: [0, 0],
+  });
+}
+
+function toggleHotspots() {
+  showHotspots = !showHotspots;
+  document.getElementById('b-hotspots').classList.toggle('on', showHotspots);
+  if (showHotspots) {
+    updateHotspots(map.getBounds());
+  } else {
+    hotspotGroup.clearLayers();
+    setStatus('');
+  }
 }
 
 // ── Ocean current — animated particle flow (Windy-style) ──────────────────────
@@ -3046,7 +3256,7 @@ function importMarks(file) {
 // layer is active. Share one debounce timer — using loadTimer for both would
 // let one cancel the other's pending refresh.
 function scheduleOverlayRefresh() {
-  if (!showContours && !showCurrents && !showWind && !showSwell) return;
+  if (!showContours && !showCurrents && !showWind && !showSwell && !showHotspots) return;
   clearTimeout(overlayRefreshTimer);
   overlayRefreshTimer = setTimeout(() => {
     if (showContours) updateContours(curDate, map.getBounds());
@@ -3055,6 +3265,7 @@ function scheduleOverlayRefresh() {
     // live conditions, panning included (see the legend note on why).
     if (showWind) updateWind(map.getBounds(), forecastScrubTimeIso);
     if (showSwell) updateSwell(map.getBounds(), forecastScrubTimeIso);
+    if (showHotspots) updateHotspots(map.getBounds());
   }, 600);
 }
 map.on('moveend', function() {
