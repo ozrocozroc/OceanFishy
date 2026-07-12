@@ -210,6 +210,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
    rules regardless of selector specificity, so a max-height set inline
    here would silently ignore any @media override. */
 #forecast-panel{max-height:64vh}
+#fc-summary{display:flex}
 
 /* Mobile sidebar drawer toggle (hidden on desktop) */
 #sb-toggle{display:none}
@@ -286,6 +287,17 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
      reason #sb uses it: vh is based on the browser's largest possible
      viewport, not what's actually visible once the address bar is shown. */
   #forecast-panel{max-height:33vh;max-height:33dvh}
+
+  /* The header (title + coords + weather-icon summary + two model
+     dropdowns) was wrapping into 3 stacked rows on a narrow screen, eating
+     most of the panel's already-tight 33vh before the actual hourly grid —
+     the whole point of the panel — even started. fc-summary is pure
+     duplication (the same Wind/Wave numbers already sit a few pixels below
+     in the grid's own rows), so it's the first thing to go; tightening the
+     header padding/gaps claws back a bit more. */
+  #forecast-panel #fc-summary{display:none}
+  #forecast-panel > div:first-child{padding:6px 8px;gap:6px 8px}
+  #forecast-panel #fc-coords{font-size:9px}
 }
 </style>
 </head>
@@ -488,7 +500,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span style="font-size:13px;font-weight:700">Forecast</span>
         <span style="font-size:10px;color:var(--dim)" id="fc-coords"></span>
-        <span id="fc-summary" style="font-size:11px;display:flex;align-items:center;gap:8px"></span>
+        <span id="fc-summary" style="font-size:11px;align-items:center;gap:8px"></span>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
         <select id="fc-weather-model" class="hsel" style="font-size:10px;padding:3px 6px" title="Weather model — which source Temp/Rain/Wind is computed from." onchange="setWeatherModel(this.value)">
