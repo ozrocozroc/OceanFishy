@@ -1288,22 +1288,34 @@ async function updateHotspots(bounds) {
     ]);
     if (myReqId !== hotspotReqId) return;
     hotspotGroup.clearLayers();
-    if (sla.latSet.length < 3 || sla.lonSet.length < 3) {
+    if (sst.latSet.length < 3 || sst.lonSet.length < 3) {
       setStatus('Hotspot finder: zoom out slightly — not enough grid points in view.');
       return;
     }
 
+    // Drive the search grid off SST, not SLA — SLA/currents are ~0.25°
+    // (~25km) native resolution, so when the search loop iterated SLA's own
+    // coordinates, no candidate could ever land closer than ~25km apart
+    // REGARDLESS of zoom level, even though bathymetry (~270m) and SST
+    // (~1km) are both far finer. Confirmed directly: zoomed in on Kiama
+    // Canyon (whose named marks sit within ~2km of each other), hotspots
+    // landed 7.7-20km away — the nearest available SLA sample, not the
+    // canyon itself. SST is the finest of the gradient signals and its
+    // sample spacing actually shrinks as you zoom in (unlike SLA's hard
+    // ~25km floor), so search resolution now tracks the map view properly.
+    // SLA is nearest-neighbor-sampled onto the SST grid, same as the other
+    // coarser signals below.
     const candidates = [];
-    for (let i = 1; i < sla.latSet.length - 1; i++) {
-      for (let j = 1; j < sla.lonSet.length - 1; j++) {
-        const lat = sla.latSet[i], lon = sla.lonSet[j];
-        const v = sla.grid[i][j], vN = sla.grid[i + 1][j], vE = sla.grid[i][j + 1];
-        if (v == null || vN == null || vE == null) continue;
-        const slaGrad = Math.hypot(vN - v, vE - v);
+    for (let i = 1; i < sst.latSet.length - 1; i++) {
+      for (let j = 1; j < sst.lonSet.length - 1; j++) {
+        const lat = sst.latSet[i], lon = sst.lonSet[j];
+        const temp = sst.grid[i][j], tempN = sst.grid[i + 1][j], tempE = sst.grid[i][j + 1];
+        if (temp == null || tempN == null || tempE == null) continue;
+        const sstGrad = Math.hypot(tempN - temp, tempE - temp);
 
         const depth = nearestGridValue(bathy.latSet, bathy.lonSet, bathy.grid, lat, lon);
-        const depthN = nearestGridValue(bathy.latSet, bathy.lonSet, bathy.grid, sla.latSet[i + 1], lon);
-        const depthE = nearestGridValue(bathy.latSet, bathy.lonSet, bathy.grid, lat, sla.lonSet[j + 1]);
+        const depthN = nearestGridValue(bathy.latSet, bathy.lonSet, bathy.grid, sst.latSet[i + 1], lon);
+        const depthE = nearestGridValue(bathy.latSet, bathy.lonSet, bathy.grid, lat, sst.lonSet[j + 1]);
         if (depth == null || depth > 0 || depthN == null || depthE == null) continue; // land or no data
         const depthGrad = Math.hypot(depthN - depth, depthE - depth);
 
@@ -1311,11 +1323,11 @@ async function updateHotspots(bounds) {
         const curScore = hotspotCurrentScore(speed);
         if (curScore == null) continue;
 
-        const temp = nearestGridValue(sst.latSet, sst.lonSet, sst.grid, lat, lon);
-        const tempN = nearestGridValue(sst.latSet, sst.lonSet, sst.grid, sla.latSet[i + 1], lon);
-        const tempE = nearestGridValue(sst.latSet, sst.lonSet, sst.grid, lat, sla.lonSet[j + 1]);
-        if (temp == null || tempN == null || tempE == null) continue;
-        const sstGrad = Math.hypot(tempN - temp, tempE - temp);
+        const v = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, lat, lon);
+        const vN = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, sst.latSet[i + 1], lon);
+        const vE = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, lat, sst.lonSet[j + 1]);
+        if (v == null || vN == null || vE == null) continue;
+        const slaGrad = Math.hypot(vN - v, vE - v);
 
         // Chl-a (OLCI, optical) has real coverage gaps from cloud and coastal
         // sun-glint that SST (microwave+IR blend) and altimetry (radar)
@@ -1328,8 +1340,8 @@ async function updateHotspots(bounds) {
         // exactly backwards from the point of the tool. Chl is optional now;
         // see the scoring step below for how a missing reading is handled.
         const chlLog = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, lat, lon);
-        const chlLogN = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, sla.latSet[i + 1], lon);
-        const chlLogE = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, lat, sla.lonSet[j + 1]);
+        const chlLogN = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, sst.latSet[i + 1], lon);
+        const chlLogE = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, lat, sst.lonSet[j + 1]);
         const chlAvailable = chlLog != null && chlLogN != null && chlLogE != null;
         const chlGrad = chlAvailable ? Math.hypot(chlLogN - chlLog, chlLogE - chlLog) : null;
 
@@ -1385,6 +1397,7 @@ async function updateHotspots(bounds) {
     picked.forEach((c, i) => {
       L.marker([c.lat, c.lon], {icon: hotspotIcon(i + 1)}).addTo(hotspotGroup).bindPopup(
         `<b>🎯 Hotspot #${i + 1} — score ${(c.score * 100).toFixed(0)}/100</b><br>` +
+        `${Math.abs(c.lat).toFixed(4)}°${c.lat<0?'S':'N'}, ${Math.abs(c.lon).toFixed(4)}°${c.lon<0?'W':'E'}<br>` +
         `SST: ${c.temp.toFixed(1)}°C, temp break ${(c.sstGrad).toFixed(2)}°C/cell<br>` +
         `Chl-a: ${c.chlAvailable ? c.chlMgm3.toFixed(2) + ' mg/m³, front strength ' + c.chlGrad.toFixed(2) + ' (log10 scale)/cell' : 'no data (cloud/glint — common near coast)'}<br>` +
         `Depth: ${c.depth.toFixed(0)}m (Δ${c.depthGrad.toFixed(0)}m to nearest cell — canyon/shelf-edge signal)<br>` +
