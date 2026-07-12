@@ -157,17 +157,10 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
    otherwise it stays clamped to the bare 80px floor and shows zero rows. */
 #map.forecast-open #sb #marks-panel{min-height:180px}
 .pt{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:9px}
-#rv{font-size:28px;font-weight:700;line-height:1}
-#ru{font-size:12px;color:var(--mut);margin-left:2px}
-#rc{font-size:11px;color:var(--dim);margin-top:5px;font-variant-numeric:tabular-nums}
-#rsub{font-size:11px;color:var(--dim);line-height:1.45;border-top:1px solid var(--bdr);padding-top:7px;margin-top:8px}
-#rph{font-size:12px;color:var(--dim);line-height:1.5}
 .sr{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--bdr)}
 .sr:last-child{border-bottom:none}
 .sn{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:5px}
 .sv{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
-.sd{font-size:10px;margin-top:1px}
-.up{color:#ff8c6e}.dn{color:#5de09a}
 #lgrd{height:10px;border-radius:3px;margin-bottom:5px}
 #llabs{display:flex;justify-content:space-between;font-size:10px;color:var(--dim)}
 .mr{display:flex;justify-content:space-between;align-items:center;padding:5px 4px;border-bottom:1px solid var(--bdr);cursor:pointer}
@@ -384,11 +377,6 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <!-- Sidebar -->
   <div id="sb">
     <div class="panel">
-      <div class="pt" id="rpt">Click ocean to read value</div>
-      <div id="rpc"><div id="rph">Click anywhere on the water to read SST, Chlorophyll‑a or Sea Level Anomaly at that point.</div></div>
-    </div>
-
-    <div class="panel">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span class="pt" style="margin:0">Legend</span>
         <span id="lname" style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--mut)">SST</span>
@@ -426,26 +414,27 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 
     <div class="panel">
       <div class="pt" id="cond-toggle" onclick="toggleConditions()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center">
-        <span>Conditions — <span id="rname">Sydney NSW</span> <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">(regional estimates)</span></span>
+        <span>Conditions — <span id="rname">Sydney NSW</span> <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">(at region center)</span></span>
         <span id="cond-chevron" style="transition:transform .15s ease;flex-shrink:0;margin-left:6px;transform:rotate(-90deg)">▾</span>
       </div>
       <div id="cond-body" style="display:none">
         <div class="sr">
-          <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--sst);display:inline-block;margin-right:5px"></span>SST</span>
-          <div style="text-align:right"><div class="sv" id="s-sst">—</div><div class="sd up" id="s-sstd"></div></div>
+          <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--sst);display:inline-block;margin-right:5px"></span>SST <span style="font-size:9px;color:var(--dim)">(est.)</span></span>
+          <div style="text-align:right"><div class="sv" id="s-sst">—</div></div>
         </div>
         <div class="sr">
-          <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--chl);display:inline-block;margin-right:5px"></span>Chlorophyll</span>
-          <div style="text-align:right"><div class="sv" id="s-chl">—</div><div class="sd dn" id="s-chld"></div></div>
+          <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--chl);display:inline-block;margin-right:5px"></span>Chlorophyll <span style="font-size:9px;color:var(--dim)">(est.)</span></span>
+          <div style="text-align:right"><div class="sv" id="s-chl">—</div></div>
         </div>
         <div class="sr">
-          <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--alt);display:inline-block;margin-right:5px"></span>Sea level anom.</span>
-          <div style="text-align:right"><div class="sv" id="s-alt">—</div><div class="sd up" id="s-altd"></div></div>
+          <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--alt);display:inline-block;margin-right:5px"></span>Sea level anom. <span style="font-size:9px;color:var(--dim)">(live)</span></span>
+          <div style="text-align:right"><div class="sv" id="s-alt">—</div></div>
         </div>
         <div class="sr">
-          <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#3a7ca5;display:inline-block;margin-right:5px"></span>Depth</span>
-          <div style="text-align:right"><div class="sv" id="s-depth">~380m</div><div class="sd" style="color:var(--dim)" id="s-depthd">Kiama Canyon</div></div>
+          <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#3a7ca5;display:inline-block;margin-right:5px"></span>Depth <span style="font-size:9px;color:var(--dim)">(live)</span></span>
+          <div style="text-align:right"><div class="sv" id="s-depth">—</div></div>
         </div>
+        <div id="s-note" style="font-size:11px;color:var(--dim);margin-top:5px;line-height:1.4"></div>
       </div>
     </div>
 
@@ -684,14 +673,20 @@ const LAYERS = {
   },
 };
 
+// Formerly also carried hardcoded sst/chl/alt/depth strings per region for
+// the Conditions panel — static placeholder text that never changed and
+// never reflected reality (e.g. Sydney always showed "20.1°C" regardless of
+// season or the actual date). jumpTo() now fetches real SLA/Depth (and a
+// simVal SST/Chl estimate, same as Live Readings) at each region's center
+// instead, same pattern already used for the click popup.
 const REGIONS = {
-  sydney:      {lat:-33.85,lng:151.5, zoom:8, name:'Sydney NSW',        sst:'20.1°C',sstd:'↑0.8°',       chl:'0.24 mg/m³',chld:'↓0.02',alt:'+4 cm',altd:'↑2cm', depth:'~800m',depthd:'Sydney Canyon'},
-  brisbane:    {lat:-27.5, lng:154.2, zoom:7, name:'Brisbane / Moreton',sst:'24.8°C',sstd:'↑1.4°',       chl:'0.18 mg/m³',chld:'—',    alt:'+9 cm',altd:'↑5cm', depth:'~200m',depthd:'Moreton shelf edge'},
-  cairns:      {lat:-16.9, lng:147.5, zoom:7, name:'Cairns / Coral Sea',sst:'28.4°C',sstd:'↑0.5°',       chl:'0.12 mg/m³',chld:'—',    alt:'+11 cm',altd:'↑4cm', depth:'~40m',depthd:'Great Barrier Reef shelf'},
-  geraldton:   {lat:-28.8, lng:115.0, zoom:7, name:'Geraldton / WA',   sst:'22.1°C',sstd:'↑0.9°',       chl:'0.42 mg/m³',chld:'↑0.08',alt:'-2 cm',altd:'↓3cm', depth:'~150m',depthd:'Abrolhos shelf edge'},
-  portlincoln: {lat:-34.7, lng:136.0, zoom:7, name:'Port Lincoln',     sst:'16.3°C',sstd:'↑0.4°',       chl:'0.88 mg/m³',chld:'↑0.22',alt:'-5 cm',altd:'↓2cm', depth:'~100m',depthd:'Great Australian Bight shelf'},
-  tasmania:    {lat:-43.0, lng:147.5, zoom:7, name:'Tasmania',         sst:'13.8°C',sstd:'↑0.2°',       chl:'1.12 mg/m³',chld:'↑0.31',alt:'-8 cm',altd:'↓4cm', depth:'~600m',depthd:'Tasman Fracture'},
-  australia:   {lat:-28.0, lng:134.0, zoom:4, name:'Australia',        sst:'21.0°C',sstd:'avg',          chl:'0.35 mg/m³',chld:'avg',  alt:'+2 cm',altd:'avg', depth:'—',depthd:'Varies by region'},
+  sydney:      {lat:-33.85,lng:151.5, zoom:8, name:'Sydney NSW'},
+  brisbane:    {lat:-27.5, lng:154.2, zoom:7, name:'Brisbane / Moreton'},
+  cairns:      {lat:-16.9, lng:147.5, zoom:7, name:'Cairns / Coral Sea'},
+  geraldton:   {lat:-28.8, lng:115.0, zoom:7, name:'Geraldton / WA'},
+  portlincoln: {lat:-34.7, lng:136.0, zoom:7, name:'Port Lincoln'},
+  tasmania:    {lat:-43.0, lng:147.5, zoom:7, name:'Tasmania'},
+  australia:   {lat:-28.0, lng:134.0, zoom:4, name:'Australia'},
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -2760,16 +2755,6 @@ async function updateLiveReadings(lat, lng) {
     document.getElementById('live-note').innerHTML = v.note.replace(/\n/g,'<br>');
   }
 
-  // Also update the top readout panel for backwards compat
-  if (curLayer !== 'off' && curLayer !== 'depth' && curLayer !== 'alt') {
-    const cfg = LAYERS[curLayer];
-    const v = simVal(lat,lng,curLayer);
-    document.getElementById('rpt').textContent = cfg.label;
-    document.getElementById('rpc').innerHTML =
-      `<div id="rv">${v.val}<span id="ru"> ${v.unit}</span></div>
-       <div id="rc">${ls} · ${ms} · ${curDate} (UTC)</div>
-       <div id="rsub">${v.note.replace(/\n/g,'<br>')}</div>`;
-  }
   syncLivePopup();
 
   // Fetch real altimetry async — update when ready (matches the color overlay,
@@ -2786,11 +2771,6 @@ async function updateLiveReadings(lat, lng) {
       document.getElementById('live-alt').style.color = 'var(--txt)';
       if (curLayer === 'alt') {
         document.getElementById('live-note').innerHTML = slaNote(cm);
-        document.getElementById('rpt').textContent = LAYERS.alt.label;
-        document.getElementById('rpc').innerHTML =
-          `<div id="rv">${cmStr}<span id="ru"> cm</span></div>
-           <div id="rc">${ls} · ${ms} · ${curDate} (UTC)</div>
-           <div id="rsub">${slaNote(cm)}</div>`;
       }
     }
   } catch(err) {
@@ -2819,13 +2799,6 @@ async function updateLiveReadings(lat, lng) {
                    depth<500 ? '🔵 Shelf edge (200–500m) — tuna corridor, YFT zone' :
                    depth<1000? '🌊 Upper slope (500–1000m) — deep game fish' :
                    depth<2000? '🌊 Mid slope (1–2km)' : '🕳 Deep ocean (>2km)';
-      if (curLayer === 'depth') {
-        document.getElementById('rpt').textContent = 'Water depth (bathymetry)';
-        document.getElementById('rpc').innerHTML =
-          `<div id="rv">${depth.toFixed(0)}<span id="ru"> m</span></div>
-           <div id="rc">${ls} · ${ms}</div>
-           <div id="rsub">${note}</div>`;
-      }
       document.getElementById('live-note').innerHTML = note;
     }
   } catch(err) {
@@ -2988,18 +2961,55 @@ function simVal(lat,lng,layer) {
 }
 
 // ── Region jump ───────────────────────────────────────────────────────────────
+// Conditions panel used to show hardcoded placeholder text per region (e.g.
+// Sydney always "20.1°C" regardless of season/date) — now fetches real
+// SLA/Depth at the region's center point, same functions the click popup
+// uses, plus a simVal SST/Chl estimate (same "(est.)" labeling Live Readings
+// already uses for those two, since real point SST/Chl extraction isn't
+// implemented — see simVal's own comment).
+let condsReqId = 0;
 function jumpTo(key) {
   const r = REGIONS[key];
   map.flyTo([r.lat,r.lng],r.zoom,{duration:1.2});
   document.getElementById('rname').textContent = r.name;
-  document.getElementById('s-sst').textContent  = r.sst;
-  document.getElementById('s-sstd').textContent = r.sstd;
-  document.getElementById('s-chl').textContent  = r.chl;
-  document.getElementById('s-chld').textContent = r.chld;
-  document.getElementById('s-alt').textContent  = r.alt;
-  document.getElementById('s-altd').textContent = r.altd;
-  document.getElementById('s-depth').textContent  = r.depth;
-  document.getElementById('s-depthd').textContent = r.depthd;
+  updateConditions(r.lat, r.lng);
+}
+
+async function updateConditions(lat, lng) {
+  const myReqId = ++condsReqId;
+  const sst = simVal(lat,lng,'sst');
+  const chl = simVal(lat,lng,'chl');
+  document.getElementById('s-sst').textContent = sst.val + ' °C';
+  document.getElementById('s-chl').textContent = chl.val + ' mg/m³';
+  document.getElementById('s-alt').textContent = '…';
+  document.getElementById('s-depth').textContent = '…';
+  document.getElementById('s-note').textContent = '';
+
+  try {
+    const slaM = await getRealSla(lat, lng);
+    if (myReqId !== condsReqId) return;
+    document.getElementById('s-alt').textContent = slaM === null ? 'n/a' : (slaM*100>=0?'+':'') + (slaM*100).toFixed(1) + ' cm';
+  } catch(err) {
+    if (myReqId !== condsReqId) return;
+    document.getElementById('s-alt').textContent = 'n/a';
+  }
+
+  try {
+    const elev = await getGebcoDepth(lat, lng);
+    if (myReqId !== condsReqId) return;
+    if (elev === null || elev > 0) {
+      document.getElementById('s-depth').textContent = '— (land)';
+    } else {
+      const depth = Math.abs(elev);
+      document.getElementById('s-depth').textContent = depth.toFixed(0) + ' m';
+      document.getElementById('s-note').textContent =
+        depth<200 ? 'Shelf' : depth<500 ? 'Shelf edge — tuna corridor' :
+        depth<1000 ? 'Upper slope — deep game fish' : depth<2000 ? 'Mid slope' : 'Deep ocean';
+    }
+  } catch(err) {
+    if (myReqId !== condsReqId) return;
+    document.getElementById('s-depth').textContent = 'n/a';
+  }
 }
 
 function flyMark(lat,lng) {
