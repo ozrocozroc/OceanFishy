@@ -452,7 +452,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
       </div>
       <select id="mark-group-filter" onchange="renderMarksList()" style="width:100%;background:var(--surf2);border:1px solid var(--bdrs);color:var(--mut);border-radius:4px;font-size:11px;padding:5px 6px;font-family:inherit;outline:none;margin-bottom:6px;flex-shrink:0"></select>
       <div style="display:flex;justify-content:flex-end;gap:5px;margin-bottom:8px;flex-shrink:0">
-        <button onclick="exportMarks()" title="Download all marks as a JSON file" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬇ Export</button>
+        <button onclick="exportMarks()" title="Download marks as a JSON file — set the group filter above to 'All groups' or a specific group first to control what's exported" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬇ Export</button>
         <button onclick="document.getElementById('mark-import-input').click()" title="Import marks from a JSON file" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬆ Import</button>
         <input type="file" id="mark-import-input" accept="application/json,.json" style="display:none" onchange="importMarks(this.files[0]); this.value=''">
       </div>
@@ -3269,15 +3269,24 @@ function deleteMarkForm() {
 // ── Export / import marks (marks only live in this browser's localStorage —
 // this is the way to back them up or move them to another browser/device) ────
 function exportMarks() {
-  const blob = new Blob([JSON.stringify(marks, null, 2)], {type: 'application/json'});
+  // Reuse the group filter already sitting above the Export button, rather
+  // than adding a second group picker — "export what's currently filtered"
+  // matches what the list on screen shows, and needs no new UI.
+  const filter = document.getElementById('mark-group-filter').value || 'All';
+  const toExport = filter === 'All' ? marks : marks.filter(m => (m.group || 'Ungrouped') === filter);
+  if (!toExport.length) { setStatus('No marks in "' + filter + '" to export.'); return; }
+
+  const blob = new Blob([JSON.stringify(toExport, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'oceanfishy-marks-' + todayStr() + '.json';
+  const groupSlug = filter === 'All' ? '' : '-' + filter.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  a.download = 'oceanfishy-marks' + groupSlug + '-' + todayStr() + '.json';
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+  setStatus(`Exported ${toExport.length} mark${toExport.length === 1 ? '' : 's'}` + (filter === 'All' ? '' : ` from "${filter}"`) + '.');
 }
 
 function importMarks(file) {
