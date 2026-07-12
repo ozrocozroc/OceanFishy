@@ -706,6 +706,12 @@ L.DomEvent.disableClickPropagation(document.getElementById('forecast-panel'));
 // SST/Chl/SLA reading + marker at whatever point sits under the sidebar.
 L.DomEvent.disableClickPropagation(document.getElementById('sb'));
 
+// #mark-form is a sibling of #sb, not nested inside it, so it never got the
+// same fix — mousedown inside the add/edit-mark panel (dragging across a
+// text field, clicking the icon picker, etc.) bubbled to the map container
+// and Leaflet's own drag handler, panning the map underneath the form.
+L.DomEvent.disableClickPropagation(document.getElementById('mark-form'));
+
 // disableClickPropagation only stops clicks — mouse wheel events over any
 // floating panel inside #map still bubble to Leaflet's scrollWheelZoom, so
 // scrolling the Known Marks list (or the sidebar generally, in its
