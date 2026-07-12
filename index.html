@@ -3288,10 +3288,13 @@ function deleteMarkForm() {
 // temporarily (e.g. to read the layer underneath more clearly), not for
 // deleting anything; the sidebar list stays untouched so you can still
 // click a row to fly to a mark even while pins are hidden.
+// NOTE: marksLayerGroup, not markGroup — markGroup is a separate, unused
+// leftover layer group that renderMarkers() never actually populates; the
+// real pins/badges all live in marksLayerGroup (see renderMarkers below).
 let marksHidden = false;
 function toggleMarksVisibility() {
   marksHidden = !marksHidden;
-  if (marksHidden) map.removeLayer(markGroup); else markGroup.addTo(map);
+  if (marksHidden) map.removeLayer(marksLayerGroup); else marksLayerGroup.addTo(map);
   const btn = document.getElementById('b-marks-hide');
   btn.textContent = marksHidden ? '👁 Show pins' : '👁 Hide pins';
   // Same inline-style-beats-CSS-class issue as the Edit/+Add buttons — set
