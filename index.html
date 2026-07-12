@@ -332,8 +332,6 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <div class="sep"></div>
   <span class="lbl">Overlays</span>
   <button class="lb contours" id="b-currents" onclick="toggleCurrents()" title="Overlay real geostrophic surface current arrows on any layer">➜ Currents</button>
-  <button class="lb contours" id="b-wind" onclick="toggleWind()" title="Overlay real wind speed/direction arrows (Open-Meteo)">💨 Wind</button>
-  <button class="lb contours" id="b-swell" onclick="toggleSwell()" title="Overlay real swell height/direction arrows (Open-Meteo Marine)">🌊 Swell</button>
   <button class="lb contours" id="b-contours" onclick="toggleContours()" title="Overlay real SLA contour lines on any layer, for comparison">〰 SLA contours</button>
   <button class="lb contours" id="b-hotspots" onclick="toggleHotspots()" title="Analyze real SST temperature breaks, chlorophyll fronts, SLA fronts, canyon-edge bathymetry and current speed in view, and flag the strongest combined signal points" style="display:none">🎯 Hotspots</button>
   <div class="sep"></div>
@@ -1739,200 +1737,6 @@ function toggleCurrents() {
 map.on('resize', resizeCurrentCanvas);
 window.addEventListener('resize', resizeCurrentCanvas);
 
-// ── Wind & Swell arrow overlays (Open-Meteo — free, no key, real CORS) ────────
-// Same arrow-grid technique as the Current layer, but Open-Meteo is a
-// point-forecast API (not a WMS grid), so a batched multi-location "current
-// conditions" request stands in for a grid fetch — one HTTP call covering
-// every sample point in the visible bounds.
-const windGroup = L.layerGroup().addTo(map);
-const swellGroup = L.layerGroup().addTo(map);
-let windReqId = 0, swellReqId = 0;
-let showWind = false, showSwell = false;
-
-// Scrubbing the Forecast panel's timeline can drive Wind/Swell into showing
-// a future/past hour instead of live conditions — Open-Meteo has a real
-// 16-day hourly forecast, unlike the NOAA current-observation dataset, which
-// has no forecast product at all (see the currents legend note). null means
-// "live/now"; set while the Forecast panel is open and scrubbed.
-let forecastScrubTimeIso = null;
-let fcOverlayScrubTimer = null;
-const windForecastCache = new Map();  // timeIso -> parsed locs, so re-scrubbing to an already-visited hour is instant
-const swellForecastCache = new Map();
-const WIND_GRID = 8; // NxN sample points — coarser than currents, arrows need room
-
-function sampleGrid(bounds, n) {
-  const latMin = Math.max(bounds.getSouth(), -89.9), latMax = Math.min(bounds.getNorth(), 89.9);
-  const lonMin = Math.max(bounds.getWest(), -179.9), lonMax = Math.min(bounds.getEast(), 179.9);
-  const lats = [], lons = [];
-  for (let i = 0; i < n; i++) {
-    const la = latMin + (i + 0.5) / n * (latMax - latMin);
-    for (let j = 0; j < n; j++) {
-      const lo = lonMin + (j + 0.5) / n * (lonMax - lonMin);
-      lats.push(la.toFixed(3));
-      lons.push(lo.toFixed(3));
-    }
-  }
-  return {lats, lons};
-}
-
-function flowArrowIcon(magnitude, maxScale, bearingDeg, fill) {
-  const size = Math.min(28, 10 + magnitude * maxScale);
-  const opacity = Math.min(1, 0.4 + magnitude * maxScale * 0.03);
-  return L.divIcon({
-    className: 'current-arrow',
-    html: `<svg width="${size}" height="${size}" viewBox="0 0 24 24" style="transform:rotate(${bearingDeg}deg);opacity:${opacity};display:block">
-      <path d="M12 2 L18 17 L12 13 L6 17 Z" fill="${fill}" stroke="#04263a" stroke-width="0.8"/>
-    </svg>`,
-    iconSize: [size, size],
-    iconAnchor: [size/2, size/2],
-  });
-}
-
-function drawWindMarkers(locs) {
-  windGroup.clearLayers();
-  locs.forEach(loc => {
-    if (loc.kmh == null) return;
-    // maxScale halved vs the old knots-based 1.1 (÷1.852, the knot->km/h
-    // factor) so arrows are sized/shaded the same as before for the same
-    // real wind speed — otherwise every arrow would suddenly look bigger
-    // and more opaque purely because the magnitude number got larger.
-    L.marker([loc.lat, loc.lon], {
-      icon: flowArrowIcon(loc.kmh, 0.594, loc.bearing, loc.fill), interactive: false, keyboard: false,
-    }).addTo(windGroup);
-  });
-}
-
-async function updateWind(bounds, timeIso) {
-  const myReqId = ++windReqId;
-
-  if (timeIso && windForecastCache.has(timeIso)) {
-    drawWindMarkers(windForecastCache.get(timeIso));
-    return;
-  }
-
-  const {lats, lons} = sampleGrid(bounds, WIND_GRID);
-  // Live "now" uses Open-Meteo's current= endpoint (unchanged). Scrubbing the
-  // Forecast timeline instead pulls the full 16-day hourly array per point
-  // and picks out the scrubbed hour — the same forecast horizon and source
-  // already powering the Forecast panel, so Wind can genuinely simulate a
-  // future hour instead of only ever showing right-now conditions.
-  // No wind_speed_unit param on either URL — km/h is Open-Meteo's default
-  // for both the hourly and current endpoints, so no client-side unit
-  // conversion is needed at all now.
-  const url = timeIso
-    ? `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}&hourly=wind_speed_10m,wind_direction_10m&forecast_days=16&timezone=UTC`
-    : `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m`;
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('wind fetch failed: ' + resp.status);
-    const data = await resp.json();
-    if (myReqId !== windReqId) return;
-    const rawLocs = Array.isArray(data) ? data : [data];
-
-    const parsed = [];
-    rawLocs.forEach(loc => {
-      let kmh, dirDeg;
-      if (timeIso) {
-        const hi = loc.hourly?.time?.indexOf(timeIso);
-        if (hi == null || hi < 0) return;
-        kmh = loc.hourly.wind_speed_10m[hi];
-        dirDeg = loc.hourly.wind_direction_10m[hi];
-        if (kmh == null || dirDeg == null) return;
-      } else {
-        if (!loc.current || loc.current.wind_speed_10m == null || loc.current.wind_direction_10m == null) return;
-        kmh = loc.current.wind_speed_10m;
-        dirDeg = loc.current.wind_direction_10m;
-      }
-      // wind_direction is meteorological "from" bearing — +180 to point the
-      // arrow in the direction the wind is actually blowing toward, matching
-      // the current arrows' flow-direction convention.
-      const bearing = (dirDeg + 180) % 360;
-      // Thresholds converted from the old 10/20/30kt bands (×1.852).
-      const fill = kmh < 19 ? '#8fe3b0' : kmh < 37 ? '#3dc47e' : kmh < 56 ? '#e0a83d' : '#e8573a';
-      parsed.push({lat: loc.latitude, lon: loc.longitude, kmh, bearing, fill});
-    });
-
-    if (timeIso) windForecastCache.set(timeIso, parsed);
-    drawWindMarkers(parsed);
-  } catch (err) {
-    if (myReqId !== windReqId) return;
-    console.log('OceanFishy wind fetch failed:', err.message);
-  }
-}
-
-function drawSwellMarkers(locs) {
-  swellGroup.clearLayers();
-  locs.forEach(loc => {
-    if (loc.h == null) return;
-    L.marker([loc.lat, loc.lon], {
-      icon: flowArrowIcon(loc.h, 8, loc.bearing, loc.fill), interactive: false, keyboard: false,
-    }).addTo(swellGroup);
-  });
-}
-
-async function updateSwell(bounds, timeIso) {
-  const myReqId = ++swellReqId;
-
-  if (timeIso && swellForecastCache.has(timeIso)) {
-    drawSwellMarkers(swellForecastCache.get(timeIso));
-    return;
-  }
-
-  const {lats, lons} = sampleGrid(bounds, WIND_GRID);
-  // Stays on the default "best_match" model — models=ecmwf_wam (used for the
-  // Forecast panel's total wave height, see openForecastPanel) only provides
-  // the combined sea state, not the swell decomposition this overlay needs;
-  // confirmed directly against the API that swell_wave_* comes back null
-  // under that model, which would silently blank out every arrow here.
-  const url = timeIso
-    ? `https://marine-api.open-meteo.com/v1/marine?latitude=${lats.join(',')}&longitude=${lons.join(',')}&hourly=swell_wave_height,swell_wave_direction,swell_wave_period&forecast_days=16&timezone=UTC`
-    : `https://marine-api.open-meteo.com/v1/marine?latitude=${lats.join(',')}&longitude=${lons.join(',')}&current=swell_wave_height,swell_wave_direction,swell_wave_period`;
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('swell fetch failed: ' + resp.status);
-    const data = await resp.json();
-    if (myReqId !== swellReqId) return;
-    const rawLocs = Array.isArray(data) ? data : [data];
-
-    const parsed = [];
-    rawLocs.forEach(loc => {
-      let h, dirDeg;
-      if (timeIso) {
-        const hi = loc.hourly?.time?.indexOf(timeIso);
-        if (hi == null || hi < 0) return;
-        h = loc.hourly.swell_wave_height[hi];
-        dirDeg = loc.hourly.swell_wave_direction[hi];
-        if (h == null || dirDeg == null) return;
-      } else {
-        const c = loc.current;
-        if (!c || c.swell_wave_height == null || c.swell_wave_direction == null) return;
-        h = c.swell_wave_height;
-        dirDeg = c.swell_wave_direction;
-      }
-      const bearing = (dirDeg + 180) % 360;
-      const fill = h < 0.5 ? '#8fd6f2' : h < 1.5 ? '#3aa0d8' : h < 2.5 ? '#1f6fae' : '#0d3b6e';
-      parsed.push({lat: loc.latitude, lon: loc.longitude, h, bearing, fill});
-    });
-
-    if (timeIso) swellForecastCache.set(timeIso, parsed);
-    drawSwellMarkers(parsed);
-  } catch (err) {
-    if (myReqId !== swellReqId) return;
-    console.log('OceanFishy swell fetch failed:', err.message);
-  }
-}
-
-function toggleWind() {
-  showWind = !showWind;
-  document.getElementById('b-wind').classList.toggle('on', showWind);
-  if (showWind) updateWind(map.getBounds(), forecastScrubTimeIso); else windGroup.clearLayers();
-}
-function toggleSwell() {
-  showSwell = !showSwell;
-  document.getElementById('b-swell').classList.toggle('on', showSwell);
-  if (showSwell) updateSwell(map.getBounds(), forecastScrubTimeIso); else swellGroup.clearLayers();
-}
-
 // ── Point forecast panel (Wind/Gust, Temp, Pressure, Waves, Swell, Swell
 // Period, Wave Power, Tide, Moon Phase) — Open-Meteo forecast + marine APIs,
 // 16 days (their maximum forecast horizon). ──────────────────────────────────
@@ -2006,24 +1810,12 @@ function setWeatherModel(id) {
 // the click handler) is called for forecast clicks too, so the map only ever
 // shows one marker regardless of which mode placed it.
 
-// Returns Wind/Swell to live "now" conditions once the Forecast panel is no
-// longer scrubbable — otherwise they'd stay silently stuck showing whatever
-// hour was last scrubbed to, with no panel open to explain why.
-function resetForecastScrubToLive() {
-  if (forecastScrubTimeIso == null) return;
-  forecastScrubTimeIso = null;
-  clearTimeout(fcOverlayScrubTimer);
-  if (showWind) updateWind(map.getBounds());
-  if (showSwell) updateSwell(map.getBounds());
-}
-
 function toggleForecastMode() {
   forecastModeActive = !forecastModeActive;
   document.getElementById('b-forecast').classList.toggle('on', forecastModeActive);
   map.getContainer().style.cursor = forecastModeActive ? 'crosshair' : '';
   if (!forecastModeActive) {
     document.getElementById('forecast-panel').style.display = 'none';
-    resetForecastScrubToLive();
     updateCurrentLegendSize();
     setStatus('');
     return;
@@ -2051,7 +1843,6 @@ function closeForecastPanel() {
   document.getElementById('b-forecast').classList.remove('on');
   map.getContainer().style.cursor = '';
   setStatus('');
-  resetForecastScrubToLive();
   updateCurrentLegendSize();
 }
 
@@ -2476,18 +2267,6 @@ function fcScrubTo(ci) {
     `<span>${weatherIcon(code, isDay)}</span><span style="font-weight:600">${t!=null?Math.round(t)+'°C':'–'}</span>` +
     `<span style="color:var(--dim)">Wind ${wkt!=null?Math.round(wkt):'–'}/${gkt!=null?Math.round(gkt):'–'}km/h</span>` +
     `<span style="color:var(--dim)">Wave ${wh!=null?wh.toFixed(1)+'m':'–'}</span>`;
-
-  // Drive the Wind/Swell map overlays to this same scrubbed hour, so they
-  // visually "simulate" forward/back through the forecast alongside the
-  // panel — debounced so dragging the cursor across many hours doesn't fire
-  // a fetch per pixel of movement. Currents deliberately never receives this
-  // (no forecast data source for it — see the currents legend).
-  forecastScrubTimeIso = wx.hourly.time[hi];
-  clearTimeout(fcOverlayScrubTimer);
-  fcOverlayScrubTimer = setTimeout(() => {
-    if (showWind) updateWind(map.getBounds(), forecastScrubTimeIso);
-    if (showSwell) updateSwell(map.getBounds(), forecastScrubTimeIso);
-  }, 350);
 }
 
 function setupFcDrag() {
@@ -3533,15 +3312,11 @@ function importMarks(file) {
 // layer is active. Share one debounce timer — using loadTimer for both would
 // let one cancel the other's pending refresh.
 function scheduleOverlayRefresh() {
-  if (!showContours && !showCurrents && !showWind && !showSwell && !showHotspots) return;
+  if (!showContours && !showCurrents && !showHotspots) return;
   clearTimeout(overlayRefreshTimer);
   overlayRefreshTimer = setTimeout(() => {
     if (showContours) updateContours(curDate, map.getBounds());
     if (showCurrents) updateCurrents(curDate, map.getBounds());
-    // Currents intentionally never receives forecastScrubTimeIso — always
-    // live conditions, panning included (see the legend note on why).
-    if (showWind) updateWind(map.getBounds(), forecastScrubTimeIso);
-    if (showSwell) updateSwell(map.getBounds(), forecastScrubTimeIso);
     if (showHotspots) updateHotspots(map.getBounds());
   }, 600);
 }
