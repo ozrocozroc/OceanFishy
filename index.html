@@ -1308,13 +1308,23 @@ async function updateHotspots(bounds) {
         if (temp == null || tempN == null || tempE == null) continue;
         const sstGrad = Math.hypot(tempN - temp, tempE - temp);
 
+        // Chl-a (OLCI, optical) has real coverage gaps from cloud and coastal
+        // sun-glint that SST (microwave+IR blend) and altimetry (radar)
+        // mostly don't — confirmed directly: every shelf-edge test point
+        // checked had chl=null while depth/SST/SLA/current were all present.
+        // Treating a missing Chl reading as a disqualifier rather than "no
+        // signal" was silently excluding every shelf-edge candidate on any
+        // day with cloud over the coast, leaving only far-offshore deep
+        // water (where OLCI happened to be clear) as the only survivors —
+        // exactly backwards from the point of the tool. Chl is optional now;
+        // see the scoring step below for how a missing reading is handled.
         const chlLog = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, lat, lon);
         const chlLogN = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, sla.latSet[i + 1], lon);
         const chlLogE = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, lat, sla.lonSet[j + 1]);
-        if (chlLog == null || chlLogN == null || chlLogE == null) continue;
-        const chlGrad = Math.hypot(chlLogN - chlLog, chlLogE - chlLog);
+        const chlAvailable = chlLog != null && chlLogN != null && chlLogE != null;
+        const chlGrad = chlAvailable ? Math.hypot(chlLogN - chlLog, chlLogE - chlLog) : null;
 
-        candidates.push({lat, lon, slaCm: v * 100, slaGrad, depth: Math.abs(depth), depthGrad, speed, curScore, temp, sstGrad, chlMgm3: Math.pow(10, chlLog), chlGrad});
+        candidates.push({lat, lon, slaCm: v * 100, slaGrad, depth: Math.abs(depth), depthGrad, speed, curScore, temp, sstGrad, chlMgm3: chlAvailable ? Math.pow(10, chlLog) : null, chlGrad, chlAvailable});
       }
     }
 
@@ -1329,16 +1339,26 @@ async function updateHotspots(bounds) {
     // the fish relate to), SLA next (confirms an eddy is actually driving the
     // fronts rather than e.g. river outflow), current speed last (a
     // workable-vs-unfishable gate more than a "best zone" indicator alone).
+    const WEIGHTS = {sst: 0.28, chl: 0.22, depth: 0.20, sla: 0.15, current: 0.15};
     const maxSlaGrad   = Math.max(...candidates.map(c => c.slaGrad));
     const maxDepthGrad = Math.max(...candidates.map(c => c.depthGrad));
     const maxSstGrad   = Math.max(...candidates.map(c => c.sstGrad));
-    const maxChlGrad   = Math.max(...candidates.map(c => c.chlGrad));
+    const maxChlGrad   = Math.max(...candidates.filter(c => c.chlAvailable).map(c => c.chlGrad), 0);
     candidates.forEach(c => {
-      c.score = 0.28 * (maxSstGrad ? c.sstGrad / maxSstGrad : 0)
-              + 0.22 * (maxChlGrad ? c.chlGrad / maxChlGrad : 0)
-              + 0.20 * (maxDepthGrad ? c.depthGrad / maxDepthGrad : 0)
-              + 0.15 * (maxSlaGrad ? c.slaGrad / maxSlaGrad : 0)
-              + 0.15 * c.curScore;
+      // Missing Chl redistributes its weight across whichever signals ARE
+      // present instead of just scoring 0 for that slot — otherwise every
+      // candidate on a cloudy-coast day would be capped at 0.78 max and
+      // rank below distant candidates that merely have clear OLCI coverage,
+      // which has nothing to do with actual fishing potential.
+      const parts = [
+        [WEIGHTS.sst, maxSstGrad ? c.sstGrad / maxSstGrad : 0],
+        [WEIGHTS.depth, maxDepthGrad ? c.depthGrad / maxDepthGrad : 0],
+        [WEIGHTS.sla, maxSlaGrad ? c.slaGrad / maxSlaGrad : 0],
+        [WEIGHTS.current, c.curScore],
+      ];
+      if (c.chlAvailable) parts.push([WEIGHTS.chl, maxChlGrad ? c.chlGrad / maxChlGrad : 0]);
+      const weightSum = parts.reduce((s, [w]) => s + w, 0);
+      c.score = parts.reduce((s, [w, val]) => s + w * val, 0) / weightSum;
     });
     candidates.sort((a, b) => b.score - a.score);
 
@@ -1357,7 +1377,7 @@ async function updateHotspots(bounds) {
       L.marker([c.lat, c.lon], {icon: hotspotIcon(i + 1)}).addTo(hotspotGroup).bindPopup(
         `<b>🎯 Hotspot #${i + 1} — score ${(c.score * 100).toFixed(0)}/100</b><br>` +
         `SST: ${c.temp.toFixed(1)}°C, temp break ${(c.sstGrad).toFixed(2)}°C/cell<br>` +
-        `Chl-a: ${c.chlMgm3.toFixed(2)} mg/m³, front strength ${c.chlGrad.toFixed(2)} (log10 scale)/cell<br>` +
+        `Chl-a: ${c.chlAvailable ? c.chlMgm3.toFixed(2) + ' mg/m³, front strength ' + c.chlGrad.toFixed(2) + ' (log10 scale)/cell' : 'no data (cloud/glint — common near coast)'}<br>` +
         `Depth: ${c.depth.toFixed(0)}m (Δ${c.depthGrad.toFixed(0)}m to nearest cell — canyon/shelf-edge signal)<br>` +
         `SLA: ${c.slaCm >= 0 ? '+' : ''}${c.slaCm.toFixed(0)}cm, front strength ${(c.slaGrad * 100).toFixed(1)}cm/cell<br>` +
         `Current: ${c.speed.toFixed(2)} kt`
