@@ -450,7 +450,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
           <button id="b-marks-add" onclick="startAddMark()" style="background:rgba(42,159,214,.35);color:#fff;border:1px solid rgba(42,159,214,.5);border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;font-family:inherit;white-space:nowrap">＋ Add</button>
         </div>
       </div>
-      <select id="mark-group-filter" onchange="renderMarksList()" style="width:100%;background:var(--surf2);border:1px solid var(--bdrs);color:var(--mut);border-radius:4px;font-size:11px;padding:5px 6px;font-family:inherit;outline:none;margin-bottom:6px;flex-shrink:0"></select>
+      <div id="mark-group-filter" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;flex-shrink:0"></div>
       <div style="display:flex;justify-content:flex-end;gap:5px;margin-bottom:8px;flex-shrink:0">
         <button onclick="exportMarks()" title="Download marks as a JSON file — set the group filter above to 'All groups' or a specific group first to control what's exported" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬇ Export</button>
         <button onclick="document.getElementById('mark-import-input').click()" title="Import marks from a JSON file" style="background:var(--surf2);color:var(--mut);border:1px solid var(--bdrs);border-radius:4px;font-size:10px;padding:3px 7px;cursor:pointer;font-family:inherit">⬆ Import</button>
@@ -3026,12 +3026,29 @@ function renderMarkers() {
   });
 }
 
+// Chip toggles instead of a single-select dropdown — lets the list (and
+// Export) be scoped to more than one group at once, e.g. "NSW FADs" +
+// "Sydney Dive Spots" together. Empty set = no filter, same meaning "All
+// groups" used to have.
+let selectedMarkGroups = new Set();
+
+function toggleGroupFilter(g) {
+  if (g === 'All') selectedMarkGroups.clear();
+  else if (selectedMarkGroups.has(g)) selectedMarkGroups.delete(g);
+  else selectedMarkGroups.add(g);
+  renderGroupFilter();
+  renderMarksList();
+}
+
 function renderGroupFilter() {
-  const sel = document.getElementById('mark-group-filter');
+  const wrap = document.getElementById('mark-group-filter');
   const groups = [...new Set(marks.map(m => m.group || 'Ungrouped'))].sort();
-  const current = sel.value || 'All';
-  sel.innerHTML = '<option value="All">All groups</option>' + groups.map(g => `<option value="${g}">${g}</option>`).join('');
-  sel.value = groups.includes(current) ? current : 'All';
+  // Drop any selected group that no longer exists (deleted/renamed marks)
+  // so a stale selection can't silently filter everything down to nothing.
+  [...selectedMarkGroups].forEach(g => { if (!groups.includes(g)) selectedMarkGroups.delete(g); });
+
+  wrap.innerHTML = `<button class="date-chip${selectedMarkGroups.size === 0 ? ' on' : ''}" onclick="toggleGroupFilter('All')">All groups</button>` +
+    groups.map(g => `<button class="date-chip${selectedMarkGroups.has(g) ? ' on' : ''}" onclick="toggleGroupFilter('${g}')">${g}</button>`).join('');
 
   document.getElementById('mark-groups-list').innerHTML = groups.map(g => `<option value="${g}">`).join('');
 }
@@ -3044,12 +3061,11 @@ function renderGroupFilter() {
 // hiding the ✏️ pencils right as you clicked "✎ Edit" to use them.
 let openMarkGroups = new Set();
 function renderMarksList() {
-  const filter = document.getElementById('mark-group-filter').value || 'All';
   const wrap = document.getElementById('marks-list');
   const byGroup = {};
   marks.forEach(m => {
     const g = m.group || 'Ungrouped';
-    if (filter !== 'All' && g !== filter) return;
+    if (selectedMarkGroups.size > 0 && !selectedMarkGroups.has(g)) return;
     (byGroup[g] = byGroup[g] || []).push(m);
   });
   const groupNames = Object.keys(byGroup).sort();
@@ -3269,24 +3285,28 @@ function deleteMarkForm() {
 // ── Export / import marks (marks only live in this browser's localStorage —
 // this is the way to back them up or move them to another browser/device) ────
 function exportMarks() {
-  // Reuse the group filter already sitting above the Export button, rather
-  // than adding a second group picker — "export what's currently filtered"
-  // matches what the list on screen shows, and needs no new UI.
-  const filter = document.getElementById('mark-group-filter').value || 'All';
-  const toExport = filter === 'All' ? marks : marks.filter(m => (m.group || 'Ungrouped') === filter);
-  if (!toExport.length) { setStatus('No marks in "' + filter + '" to export.'); return; }
+  // Reuse the group chips already sitting above the Export button, rather
+  // than adding a second group picker — "export whatever's currently
+  // filtered" matches what the list on screen shows, and supports multiple
+  // groups at once since selectedMarkGroups is a Set, not a single value.
+  const groupsLabel = selectedMarkGroups.size === 0 ? 'All' : [...selectedMarkGroups].sort().join(', ');
+  const toExport = selectedMarkGroups.size === 0
+    ? marks
+    : marks.filter(m => selectedMarkGroups.has(m.group || 'Ungrouped'));
+  if (!toExport.length) { setStatus('No marks in "' + groupsLabel + '" to export.'); return; }
 
   const blob = new Blob([JSON.stringify(toExport, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  const groupSlug = filter === 'All' ? '' : '-' + filter.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  const groupSlug = selectedMarkGroups.size === 0 ? '' :
+    '-' + [...selectedMarkGroups].sort().join('-').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   a.download = 'oceanfishy-marks' + groupSlug + '-' + todayStr() + '.json';
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-  setStatus(`Exported ${toExport.length} mark${toExport.length === 1 ? '' : 's'}` + (filter === 'All' ? '' : ` from "${filter}"`) + '.');
+  setStatus(`Exported ${toExport.length} mark${toExport.length === 1 ? '' : 's'}` + (selectedMarkGroups.size === 0 ? '' : ` from "${groupsLabel}"`) + '.');
 }
 
 function importMarks(file) {
