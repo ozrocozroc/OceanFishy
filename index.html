@@ -78,6 +78,13 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
    baked in — without this reset it shows as a box behind the colored pill. */
 .eddy-core-badge{background:transparent;border:none}
 .hotspot-badge{background:transparent;border:none}
+/* Shared "glass" popup style — used for the live-reading popup (click the
+   map) and the hotspot-finder popups, in place of Leaflet's default opaque
+   white popup box, which looked out of place against this app's dark UI. */
+.of-glass-popup .leaflet-popup-content-wrapper{background:rgba(18,28,46,.72);backdrop-filter:blur(6px);color:var(--txt);border:1px solid var(--bdrs);border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,.4)}
+.of-glass-popup .leaflet-popup-content{margin:10px 12px;font-family:inherit;font-size:12px;line-height:1.5}
+.of-glass-popup .leaflet-popup-tip{background:rgba(18,28,46,.72);box-shadow:none}
+.of-glass-popup .leaflet-popup-close-button{color:var(--mut)}
 .bdot.sst{background:var(--sst)}.bdot.chl{background:var(--chl)}.bdot.alt{background:var(--alt)}.bdot.depth{background:#3a7ca5}
 
 /* Date bar */
@@ -1402,7 +1409,8 @@ async function updateHotspots(bounds) {
         `Chl-a: ${c.chlAvailable ? c.chlMgm3.toFixed(2) + ' mg/m³, front strength ' + c.chlGrad.toFixed(2) + ' (log10 scale)/cell' : 'no data (cloud/glint — common near coast)'}<br>` +
         `Depth: ${c.depth.toFixed(0)}m (Δ${c.depthGrad.toFixed(0)}m to nearest cell — canyon/shelf-edge signal)<br>` +
         `SLA: ${c.slaCm >= 0 ? '+' : ''}${c.slaCm.toFixed(0)}cm, front strength ${(c.slaGrad * 100).toFixed(1)}cm/cell<br>` +
-        `Current: ${c.speed.toFixed(2)} kt`
+        `Current: ${c.speed.toFixed(2)} kt`,
+        {className: 'of-glass-popup'}
       );
     });
 
@@ -2646,6 +2654,32 @@ function placeClickMark(lat, lng) {
   if (clickMark) map.removeLayer(clickMark);
   const col = curLayer==='sst'?'#ff8c6e':(curLayer==='chl'||curLayer==='chlOlci')?'#5de09a':curLayer==='depth'?'#6bbfd8':curLayer==='off'?'#fff':'#9bb0ff';
   clickMark = L.circleMarker([lat,lng],{radius:5,color:'#fff',weight:1.5,fillColor:col,fillOpacity:.9}).addTo(map);
+  // Test run for moving Live Readings onto the map itself instead of only
+  // the sidebar — bound now so updateLiveReadings() (called right after
+  // this, at every call site) can stream content into it as each async
+  // fetch (SLA/Depth/Current) resolves, the same way it streams into the
+  // #live-* sidebar spans. Sidebar panel is untouched/still populated in
+  // parallel; nothing removed yet, this is additive for comparison.
+  clickMark.bindPopup('…', {className: 'of-glass-popup', autoPan: false}).openPopup();
+}
+
+// Rebuilds the click-popup content from whatever's currently in the
+// sidebar's #live-* spans — called at each stage of updateLiveReadings()
+// rather than duplicating its fetch/formatting logic a second time.
+function syncLivePopup() {
+  if (!clickMark || !clickMark.getPopup()) return;
+  const get = id => document.getElementById(id).textContent;
+  const note = document.getElementById('live-note').innerHTML;
+  const html =
+    `<b>Live readings</b><br>` +
+    `SST: ${get('live-sst')}<br>` +
+    `Chl-a: ${get('live-chl')}<br>` +
+    `SLA: ${get('live-alt')}<br>` +
+    `Depth: ${get('live-depth')}<br>` +
+    `Current: ${get('live-cur')}<br>` +
+    `<span style="color:var(--dim);font-size:10px">${get('live-coord')}</span>` +
+    (note ? `<br>${note}` : '');
+  clickMark.getPopup().setContent(html);
 }
 
 // Pending-location marker for the "add mark" flow — kept separate from
@@ -2736,6 +2770,7 @@ async function updateLiveReadings(lat, lng) {
        <div id="rc">${ls} · ${ms} · ${curDate} (UTC)</div>
        <div id="rsub">${v.note.replace(/\n/g,'<br>')}</div>`;
   }
+  syncLivePopup();
 
   // Fetch real altimetry async — update when ready (matches the color overlay,
   // unlike the old simulated value)
@@ -2762,6 +2797,7 @@ async function updateLiveReadings(lat, lng) {
     document.getElementById('live-alt').textContent = 'n/a';
     document.getElementById('live-alt').style.color = 'var(--dim)';
   }
+  syncLivePopup();
 
   // Fetch real depth async — update when ready
   document.getElementById('live-depth').textContent = '…';
@@ -2796,6 +2832,7 @@ async function updateLiveReadings(lat, lng) {
     document.getElementById('live-depth').textContent = 'n/a';
     document.getElementById('live-depth').style.color = 'var(--dim)';
   }
+  syncLivePopup();
 
   // Fetch real current speed/direction async — works whether or not the
   // Currents overlay is toggled on, same as SLA/Depth above.
@@ -2817,6 +2854,7 @@ async function updateLiveReadings(lat, lng) {
     document.getElementById('live-cur').textContent = 'n/a';
     document.getElementById('live-cur').style.color = 'var(--dim)';
   }
+  syncLivePopup();
 }
 
 // ── SRTM15+ GetFeatureInfo — real water depth at a lat/lng point ──────────────
