@@ -659,11 +659,20 @@ const LAYERS = {
     label:'Water depth (bathymetry)', unit:'m', name:'Depth',
     grad:'linear-gradient(to right,#e8f8ff,#a8dff0,#4fb3d9,#1a6fa8,#0d3b6e,#060f1e)',
     min:'0m', mid:'1000m', max:'6000m+',
-    url:'https://coastwatch.pfeg.noaa.gov/erddap/wms/etopo360/request',
-    layer:'etopo360:altitude',
+    // SRTM15+ (15 arc-sec, ~270m) replaces ETOPO1 (1 arc-min, ~1.8km) — ~7x
+    // finer. Confirmed directly against real inshore spots: ETOPO1 read
+    // Bare Island (La Perouse, a real ~5-18m wall dive) as +1m "land", while
+    // SRTM15+ correctly resolves it as -11m underwater. Still nowhere near
+    // true rockhopping/reef-scale accuracy (that needs <10m chart/LIDAR
+    // data, not available as a free global ERDDAP grid) — right at the
+    // waterline SRTM15+ can still misread a real dive spot as land (e.g.
+    // Gordons Bay), so treat inshore readings as "roughly this deep,
+    // probably" not survey-grade.
+    url:'https://coastwatch.pfeg.noaa.gov/erddap/wms/srtm15plus/request',
+    layer:'srtm15plus:z',
     crange:'-6000,0', palette:'Ocean',
     startDate:null,
-    note:'ETOPO1 · 1 arc-min · Static bathymetry · land masked',
+    note:'SRTM15+ · 15 arc-sec (~270m) · Static bathymetry · land masked',
     isStatic: true,
   },
 };
@@ -1161,12 +1170,12 @@ async function fetchHotspotSlaGrid(bounds, maxPts) {
 async function fetchHotspotBathyGrid(bounds, maxPts) {
   const latMin = Math.max(bounds.getSouth(), -89.9), latMax = Math.min(bounds.getNorth(), 89.9);
   const lonMin = Math.max(bounds.getWest(), -179.9), lonMax = Math.min(bounds.getEast(), 179.9);
-  const NATIVE_RES = 1 / 60;
+  const NATIVE_RES = 1 / 240; // SRTM15+, 15 arc-sec — was ETOPO1's 1/60 (1 arc-min)
   const latStride = Math.max(1, Math.ceil((latMax - latMin) / NATIVE_RES / maxPts));
   const lonStride = Math.max(1, Math.ceil((lonMax - lonMin) / NATIVE_RES / maxPts));
   const latQ = `(${latMin.toFixed(4)}):${latStride}:(${latMax.toFixed(4)})`;
   const lonQ = `(${lonMin.toFixed(4)}):${lonStride}:(${lonMax.toFixed(4)})`;
-  const target = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/etopo360.json?altitude[${latQ}][${lonQ}]`;
+  const target = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/srtm15plus.json?z[${latQ}][${lonQ}]`;
   const data = await fetchJsonViaCorsProxy(target);
   const rows = data?.table?.rows || [];
   const latSet = [...new Set(rows.map(r => r[0]))].sort((a, b) => a - b);
@@ -2797,29 +2806,29 @@ async function updateLiveReadings(lat, lng) {
   }
 }
 
-// ── GEBCO GetFeatureInfo — real water depth at a lat/lng point ────────────────
+// ── SRTM15+ GetFeatureInfo — real water depth at a lat/lng point ──────────────
 async function getGebcoDepth(lat, lng) {
-  // Use ERDDAP griddap JSON endpoint. etopo360 is a static grid with only two
-  // dimensions (latitude, longitude) — no time/altitude leading index.
+  // Use ERDDAP griddap JSON endpoint. srtm15plus is a static grid with only
+  // two dimensions (latitude, longitude) — no time/altitude leading index.
   // This host sends no CORS headers on any endpoint (confirmed), so route
   // through fetchJsonViaCorsProxy() — the same proxy chain already used for
   // the altimetry point lookup (getRealSla) and contour data.
   const latR  = lat.toFixed(4);
   const lngR  = lng.toFixed(4);
-  const target = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/etopo360.json?altitude[(${latR})][(${lngR})]`;
+  const target = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/srtm15plus.json?z[(${latR})][(${lngR})]`;
   const data = await fetchJsonViaCorsProxy(target);
 
-  // Response: { table: { rows: [[lat, lon, altitude]] } }
+  // Response: { table: { rows: [[lat, lon, z]] } }
   const rows = data?.table?.rows;
   if (rows && rows.length > 0) {
-    const elev = rows[0][2]; // altitude column
+    const elev = rows[0][2]; // z (altitude) column
     return typeof elev === 'number' ? elev : parseFloat(elev);
   }
   return null;
 }
 
 // ── Real altimetry point value ────────────────────────────────────────────────
-// Unlike etopo360/GEBCO, this host has no CORS headers either, but the
+// Unlike srtm15plus/GEBCO, this host has no CORS headers either, but the
 // contour computation already proved fetchJsonViaCorsProxy() works for its
 // griddap JSON (unlike the image/png endpoints, which corsproxy.io's free
 // tier blocks) — reuse that here so the click-readout shows the SAME real
