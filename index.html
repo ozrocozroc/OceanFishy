@@ -1295,6 +1295,24 @@ function hotspotCurrentScore(kt) {
   return Math.max(0, 1 - Math.abs(kt - 0.7) / 1.1);
 }
 
+// Rough depth-band + SST-band species guess — same heuristic already used
+// for the Live Readings depth note and simVal's SST note, just combined
+// into one line for the hotspot popup. A hotspot's depth is near-guaranteed
+// to be >100m (depth GRADIENT is a required signal, and gradients that
+// steep mostly occur on a shelf edge or deeper), so the shallow-reef bands
+// barely apply here — this is about pelagics, not what's realistic for a
+// canyon-edge or open-water point.
+function suggestSpecies(depth, sst) {
+  const byDepth =
+    depth<200  ? ['Snapper','Kingfish'] :
+    depth<500  ? ['Yellowfin Tuna','Marlin','Mahi Mahi'] :
+    depth<1000 ? ['Bigeye Tuna','Albacore','Swordfish'] :
+                 ['Broadbill Swordfish','Deepwater species'];
+  const bySst = sst>26 ? ['Mahi Mahi','Marlin'] : sst>21 ? [] : sst>16 ? ['Albacore','Southern Bluefin Tuna'] : ['Bluefin Tuna'];
+  const merged = [...new Set([...byDepth, ...bySst])].slice(0, 4);
+  return merged.join(', ');
+}
+
 async function updateHotspots(bounds) {
   const myReqId = ++hotspotReqId;
   setStatus('Analyzing temperature breaks, chlorophyll fronts, SLA fronts, bathymetry and currents in view…');
@@ -1391,22 +1409,30 @@ async function updateHotspots(bounds) {
       // candidate on a cloudy-coast day would be capped at 0.78 max and
       // rank below distant candidates that merely have clear OLCI coverage,
       // which has nothing to do with actual fishing potential.
-      const parts = [
-        [WEIGHTS.sst, maxSstGrad ? c.sstGrad / maxSstGrad : 0],
-        [WEIGHTS.depth, maxDepthGrad ? c.depthGrad / maxDepthGrad : 0],
-        [WEIGHTS.sla, maxSlaGrad ? c.slaGrad / maxSlaGrad : 0],
-        [WEIGHTS.current, c.curScore],
-      ];
-      if (c.chlAvailable) parts.push([WEIGHTS.chl, maxChlGrad ? c.chlGrad / maxChlGrad : 0]);
+      const named = {
+        sst: [WEIGHTS.sst, maxSstGrad ? c.sstGrad / maxSstGrad : 0],
+        depth: [WEIGHTS.depth, maxDepthGrad ? c.depthGrad / maxDepthGrad : 0],
+        sla: [WEIGHTS.sla, maxSlaGrad ? c.slaGrad / maxSlaGrad : 0],
+        current: [WEIGHTS.current, c.curScore],
+      };
+      if (c.chlAvailable) named.chl = [WEIGHTS.chl, maxChlGrad ? c.chlGrad / maxChlGrad : 0];
+      const parts = Object.values(named);
       const weightSum = parts.reduce((s, [w]) => s + w, 0);
       c.score = parts.reduce((s, [w, val]) => s + w * val, 0) / weightSum;
+      // Points earned out of each signal's own max-possible weight (rescaled
+      // by the same weightSum normalization as the overall score), so the
+      // popup can show e.g. "SST 24/28" alongside the total — which signal
+      // actually drove this candidate's ranking, not just the final number.
+      c.contributions = Object.fromEntries(
+        Object.entries(named).map(([k, [w, val]]) => [k, {earned: (w * val / weightSum) * 100, max: (w / weightSum) * 100}])
+      );
     });
     candidates.sort((a, b) => b.score - a.score);
 
     // Greedy non-max suppression — otherwise the top handful of picks all
     // cluster on the same eddy/canyon feature instead of surfacing distinct
     // zones worth checking.
-    const MIN_SEPARATION_KM = 12, MAX_HOTSPOTS = 3;
+    const MIN_SEPARATION_KM = 12, MAX_HOTSPOTS = 5;
     const picked = [];
     for (const c of candidates) {
       if (picked.some(p => haversineKm(p.lat, p.lon, c.lat, c.lon) < MIN_SEPARATION_KM)) continue;
@@ -1415,14 +1441,21 @@ async function updateHotspots(bounds) {
     }
 
     picked.forEach((c, i) => {
+      const ct = c.contributions;
+      const fmt = (k, label) => ct[k] ? `${label} ${ct[k].earned.toFixed(0)}/${ct[k].max.toFixed(0)}` : `${label} n/a`;
+      const breakdown = ['sst','chl','depth','sla','current']
+        .map(k => fmt(k, {sst:'SST', chl:'Chl', depth:'Depth', sla:'SLA', current:'Cur'}[k]))
+        .join(' · ');
       L.marker([c.lat, c.lon], {icon: hotspotIcon(i + 1)}).addTo(hotspotGroup).bindPopup(
         `<b>🎯 Hotspot #${i + 1} — score ${(c.score * 100).toFixed(0)}/100</b><br>` +
         `${Math.abs(c.lat).toFixed(4)}°${c.lat<0?'S':'N'}, ${Math.abs(c.lon).toFixed(4)}°${c.lon<0?'W':'E'}<br>` +
+        `<span style="font-size:10px;color:var(--dim)">${breakdown}</span><br>` +
         `SST: ${c.temp.toFixed(1)}°C, temp break ${(c.sstGrad).toFixed(2)}°C/cell<br>` +
         `Chl-a: ${c.chlAvailable ? c.chlMgm3.toFixed(2) + ' mg/m³, front strength ' + c.chlGrad.toFixed(2) + ' (log10 scale)/cell' : 'no data (cloud/glint — common near coast)'}<br>` +
         `Depth: ${c.depth.toFixed(0)}m (Δ${c.depthGrad.toFixed(0)}m to nearest cell — canyon/shelf-edge signal)<br>` +
         `SLA: ${c.slaCm >= 0 ? '+' : ''}${c.slaCm.toFixed(0)}cm, front strength ${(c.slaGrad * 100).toFixed(1)}cm/cell<br>` +
-        `Current: ${c.speed.toFixed(2)} kt`,
+        `Current: ${c.speed.toFixed(2)} kt<br>` +
+        `<span style="color:var(--dim)">Possible: ${suggestSpecies(c.depth, c.temp)}</span>`,
         {className: 'of-glass-popup'}
       );
     });
