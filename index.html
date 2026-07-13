@@ -433,9 +433,13 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
            corner from this sidebar) — merged in here so both legends live
            in one place instead of two disconnected UI locations. -->
       <div id="current-legend" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--bdr)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <span class="pt" style="margin:0">Current</span>
-          <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--mut)">kt</span>
+        <!-- SLA (the Legend row's right-hand label) and Current here both
+             name WHAT metric is shown, so they belong on the same side —
+             right, matching SLA. "kt" is a unit, not a second label, so it's
+             a bracketed suffix on the same label rather than mirrored to
+             the opposite (left) side the way it was before. -->
+        <div style="text-align:right;margin-bottom:8px">
+          <span class="pt" style="margin:0">Current (kt)</span>
         </div>
         <div class="cl-bar" style="border-radius:3px;background:linear-gradient(to right,rgb(36,60,150),rgb(45,120,196),rgb(74,177,206),rgb(112,204,171),rgb(171,221,164),rgb(230,245,152),rgb(254,224,139),rgb(253,174,97),rgb(213,62,79))"></div>
         <div class="cl-labels" style="display:flex;justify-content:space-between;color:var(--dim)">
