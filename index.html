@@ -1318,18 +1318,28 @@ function hotspotCurrentScore(kt) {
 function suggestSpecies(depth, sst) {
   const byDepth =
     depth<200  ? ['Snapper','Kingfish'] :
-    depth<500  ? ['Yellowfin Tuna','Marlin','Mahi Mahi'] :
+    depth<500  ? ['Mahi Mahi'] :
     depth<1000 ? ['Bigeye Tuna','Albacore','Swordfish'] :
                  ['Broadbill Swordfish','Deepwater species'];
-  const bySst = sst>26 ? ['Mahi Mahi','Marlin'] : sst>21 ? [] : sst>16 ? ['Albacore','BFT'] : ['BFT'];
-  // NSW YFT/Marlin season runs May-November (confirmed) — not the Nov-May
-  // window an EAC-warm-water assumption would suggest. Season gets its own
-  // factor rather than being inferred from SST/depth alone, since today's
-  // temperature reading doesn't capture this.
+  const bySst = sst>26 ? ['Mahi Mahi'] : sst>21 ? [] : sst>16 ? ['Albacore'] : [];
+  // NSW seasonal windows (confirmed) — each gated on the calendar, not
+  // SST/depth, since one satellite reading doesn't capture a multi-month
+  // run. Marlin/YFT/BFT are controlled ONLY by season now (previously also
+  // leaked in via the depth/SST bands above, which could show e.g. Marlin
+  // in a month it doesn't actually run):
+  //   Marlin  Dec-May (wraps year-end)
+  //   YFT     May-Nov
+  //   BFT     Jun-Oct
   const month = new Date().getMonth(); // 0=Jan
-  const yftSeason = month >= 4 && month <= 10; // May(4)-Nov(10) inclusive
-  const bySeason = yftSeason ? ['Yellowfin Tuna','Marlin'] : [];
-  const merged = [...new Set([...byDepth, ...bySeason, ...bySst])].slice(0, 5);
+  const marlinSeason = month === 11 || month <= 4;
+  const yftSeason = month >= 4 && month <= 10;
+  const bftSeason = month >= 5 && month <= 9;
+  const bySeason = [
+    ...(marlinSeason ? ['Marlin'] : []),
+    ...(yftSeason ? ['Yellowfin Tuna'] : []),
+    ...(bftSeason ? ['BFT'] : []),
+  ];
+  const merged = [...new Set([...bySeason, ...byDepth, ...bySst])].slice(0, 5);
   return merged.join(', ');
 }
 
