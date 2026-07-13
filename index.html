@@ -1322,14 +1322,13 @@ function suggestSpecies(depth, sst) {
     depth<1000 ? ['Bigeye Tuna','Albacore','Swordfish'] :
                  ['Broadbill Swordfish','Deepwater species'];
   const bySst = sst>26 ? ['Mahi Mahi','Marlin'] : sst>21 ? [] : sst>16 ? ['Albacore','BFT'] : ['BFT'];
-  // Southern Hemisphere warm season (Nov-May) is when the East Australian
-  // Current pushes warm water south and YFT/Marlin actually turn up on the
-  // NSW/east coast shelf edge — outside that window they're a much longer
-  // shot regardless of what today's SST/depth alone suggest, so season gets
-  // its own factor rather than being inferred from temperature alone.
+  // NSW YFT/Marlin season runs May-November (confirmed) — not the Nov-May
+  // window an EAC-warm-water assumption would suggest. Season gets its own
+  // factor rather than being inferred from SST/depth alone, since today's
+  // temperature reading doesn't capture this.
   const month = new Date().getMonth(); // 0=Jan
-  const warmSeason = month >= 10 || month <= 4;
-  const bySeason = warmSeason ? ['Yellowfin Tuna','Marlin'] : [];
+  const yftSeason = month >= 4 && month <= 10; // May(4)-Nov(10) inclusive
+  const bySeason = yftSeason ? ['Yellowfin Tuna','Marlin'] : [];
   const merged = [...new Set([...byDepth, ...bySeason, ...bySst])].slice(0, 5);
   return merged.join(', ');
 }
