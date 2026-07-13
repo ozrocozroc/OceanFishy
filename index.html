@@ -241,9 +241,14 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
      every .lb button's own padding/font-size collapses what was 4 wrapped
      rows down to about half that. */
   .lbl,#opacity-label{display:none}
-  #lbar{padding:5px 8px;gap:4px;row-gap:4px}
-  .lb{padding:4px 7px;font-size:11px;gap:3px}
-  .sep{margin:0 2px}
+  #lbar{padding:5px 8px;gap:3px;row-gap:4px}
+  .lb{padding:4px 6px;font-size:11px;gap:3px}
+  .sep{margin:0 1px}
+  /* The two dropdowns and the opacity slider were together just wide enough
+     to force an extra wrapped row on top of the button rows below them —
+     shrinking each by a bit closes that gap so more rows actually merge. */
+  #base-select,#ocean-layer-select{max-width:98px;font-size:11px;padding:4px 5px}
+  #oslider{width:50px}
 
   /* Hotspots' full label ("🎯 Hotspots") was long enough on its own to push
      the row that already has Currents/SLA contours/Forecast/Ruler onto a
