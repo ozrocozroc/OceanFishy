@@ -118,7 +118,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
    it — panel, sidebar, and page background are all similar dark navy tones,
    so the 1px border alone was easy to miss as "where the box ends",
    especially for the last panel sitting close to the sidebar's own edge. */
-.panel{background:rgba(18,28,46,.94);border:1px solid var(--bdrs);border-radius:8px;padding:11px 13px;backdrop-filter:blur(8px);box-shadow:0 2px 8px rgba(0,0,0,.35)}
+.panel{background:rgba(18,28,46,.4);border:1px solid var(--bdrs);border-radius:8px;padding:11px 13px;backdrop-filter:blur(8px);box-shadow:0 2px 8px rgba(0,0,0,.35)}
 /* #sb #marks-panel (not just #marks-panel) so this outranks the "#sb .panel"
    flex-shrink:0 rule above -- an ID+class descendant selector beats a lone ID
    selector on specificity, so a plain #marks-panel override here would
@@ -185,20 +185,20 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 #marks-list details+details{border-top:1px solid var(--bdr);padding-top:6px}
 
 /* Spinner overlay on map */
-#spinner{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:910;background:rgba(18,28,46,.92);border:1px solid var(--bdrs);border-radius:20px;padding:6px 14px;font-size:11px;color:var(--mut);display:none;align-items:center;gap:8px;pointer-events:none}
+#spinner{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:910;background:rgba(18,28,46,.4);backdrop-filter:blur(6px);border:1px solid var(--bdrs);border-radius:20px;padding:6px 14px;font-size:11px;color:var(--mut);display:none;align-items:center;gap:8px;pointer-events:none}
 #spinner.show{display:flex}
 .spin{width:14px;height:14px;border:2px solid var(--bdrs);border-top-color:var(--acc);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* Status */
-#status{position:absolute;bottom:26px;left:10px;z-index:900;background:rgba(18,28,46,.92);border:1px solid var(--bdrs);border-radius:var(--r);padding:5px 10px;font-size:11px;color:var(--mut);display:none;max-width:320px;line-height:1.4}
+#status{position:absolute;bottom:26px;left:10px;z-index:900;background:rgba(18,28,46,.4);backdrop-filter:blur(6px);border:1px solid var(--bdrs);border-radius:var(--r);padding:5px 10px;font-size:11px;color:var(--mut);display:none;max-width:320px;line-height:1.4}
 #status.show{display:block}
 
 /* Source bar */
-#src{position:absolute;bottom:0;left:0;right:0;z-index:900;background:rgba(11,19,32,.88);border-top:1px solid var(--bdr);padding:3px 14px;font-size:10px;color:var(--dim);backdrop-filter:blur(4px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#src{position:absolute;bottom:0;left:0;right:0;z-index:900;background:rgba(11,19,32,.4);border-top:1px solid var(--bdr);padding:3px 14px;font-size:10px;color:var(--dim);backdrop-filter:blur(6px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #src a{color:var(--acc);text-decoration:none}
 
-.leaflet-tooltip{background:rgba(18,28,46,.95)!important;border:1px solid var(--bdrs)!important;color:var(--txt)!important;font-size:12px!important;border-radius:var(--r)!important;box-shadow:none!important}
+.leaflet-tooltip{background:rgba(18,28,46,.4)!important;backdrop-filter:blur(6px);border:1px solid var(--bdrs)!important;color:var(--txt)!important;font-size:12px!important;border-radius:var(--r)!important;box-shadow:none!important}
 .leaflet-tooltip::before{display:none!important}
 .leaflet-control-zoom{border:1px solid var(--bdrs)!important;border-radius:var(--r)!important;overflow:hidden}
 .leaflet-control-zoom a{background:var(--surf)!important;color:var(--mut)!important;border-bottom:1px solid var(--bdr)!important;width:28px!important;height:28px!important;line-height:28px!important}
@@ -279,7 +279,8 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
     position:absolute;left:0;right:0;bottom:0;top:auto;
     width:auto;max-height:68vh;max-height:68dvh;overflow-y:auto;
     border-radius:14px 14px 0 0;
-    background:rgba(11,19,32,.97);
+    background:rgba(11,19,32,.4);
+    backdrop-filter:blur(8px);
     /* Bumped from 10px: the last panel's border sat close enough to the true
        window edge, with backgrounds close enough in tone (panel vs sidebar
        vs page all similar dark navy), that the boundary was easy to miss
@@ -511,7 +512,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   </div>
 
   <!-- Add/Edit mark form -->
-  <div id="mark-form" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:rgba(18,28,46,.97);border:1px solid var(--bdrs);border-radius:10px;padding:16px;width:260px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.5)">
+  <div id="mark-form" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:rgba(18,28,46,.4);border:1px solid var(--bdrs);border-radius:10px;padding:16px;width:260px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.5)">
     <div style="font-size:12px;font-weight:600;margin-bottom:10px" id="mark-form-title">Add mark</div>
     <input class="mf-input" id="mf-name" placeholder="Name" maxlength="60">
     <input class="mf-input" id="mf-depth" placeholder="Depth (e.g. 260-380m)" maxlength="30">
@@ -534,7 +535,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   </div>
 
   <!-- Export marks — group picker popup -->
-  <div id="export-form" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:rgba(18,28,46,.97);border:1px solid var(--bdrs);border-radius:10px;padding:16px;width:260px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.5)">
+  <div id="export-form" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:rgba(18,28,46,.4);border:1px solid var(--bdrs);border-radius:10px;padding:16px;width:260px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.5)">
     <div style="font-size:12px;font-weight:600;margin-bottom:6px">Export marks</div>
     <div style="font-size:9px;color:var(--dim);margin-bottom:8px">Leave everything unchecked to export all groups, or pick one or more below.</div>
     <div id="export-form-list" style="max-height:220px;overflow-y:auto;margin-bottom:10px"></div>
@@ -553,7 +554,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
        scrolls internally (#fc-grid-wrap has its own overflow:auto) rather
        than overflowing the map; min-width keeps the header from cramping if
        the real data horizon is unusually short. -->
-  <div id="forecast-panel" style="display:none;position:absolute;left:8px;bottom:8px;z-index:1100;background:rgba(11,19,32,.97);border:1px solid var(--bdrs);border-radius:10px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:calc(100% - 16px);min-width:min(480px, calc(100% - 16px));flex-direction:column">
+  <div id="forecast-panel" style="display:none;position:absolute;left:8px;bottom:8px;z-index:1100;background:rgba(11,19,32,.4);border:1px solid var(--bdrs);border-radius:10px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:calc(100% - 16px);min-width:min(480px, calc(100% - 16px));flex-direction:column">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--bdr);flex-shrink:0">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span style="font-size:13px;font-weight:700">Forecast</span>
