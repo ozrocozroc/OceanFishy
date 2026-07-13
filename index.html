@@ -234,6 +234,17 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   #b-sst,#b-chl,#b-chlOlci,#b-alt,#b-depth{display:none}
   #ocean-layer-select{display:inline-block}
 
+  /* Further toolbar compaction: section labels (Base/Ocean layer/Overlays/
+     Tools) are wayfinding text that's redundant once each group is a
+     dropdown or a small icon-labeled button row — dropping them, the
+     "Opacity" text label (slider + % are self-explanatory), and shrinking
+     every .lb button's own padding/font-size collapses what was 4 wrapped
+     rows down to about half that. */
+  .lbl,#opacity-label{display:none}
+  #lbar{padding:5px 8px;gap:4px;row-gap:4px}
+  .lb{padding:4px 7px;font-size:11px;gap:3px}
+  .sep{margin:0 2px}
+
   /* Now a normal .lb toolbar button living in #lbar (Tools group) instead of
      a floating pill over the map — just needs to actually show up here. */
   #sb-toggle{display:flex}
@@ -365,7 +376,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   </select>
   <div class="sep"></div>
   <div style="display:flex;align-items:center;gap:6px">
-    <label style="font-size:11px;color:var(--dim)">Opacity</label>
+    <label id="opacity-label" style="font-size:11px;color:var(--dim)">Opacity</label>
     <input type="range" id="oslider" min="10" max="100" value="75" step="5" oninput="setOpacity(this.value)">
     <span id="oval" style="font-size:11px;color:var(--dim);min-width:28px">75%</span>
   </div>
