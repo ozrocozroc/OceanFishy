@@ -245,6 +245,12 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   .lb{padding:4px 7px;font-size:11px;gap:3px}
   .sep{margin:0 2px}
 
+  /* Hotspots' full label ("🎯 Hotspots") was long enough on its own to push
+     the row that already has Currents/SLA contours/Forecast/Ruler onto a
+     3rd row once unlocked — icon-only here, same treatment for Info (title/
+     aria-label still carry the full name for anyone who needs it). */
+  #b-hotspots .lb-text,#sb-toggle .lb-text{display:none}
+
   /* Now a normal .lb toolbar button living in #lbar (Tools group) instead of
      a floating pill over the map — just needs to actually show up here. */
   #sb-toggle{display:flex}
@@ -384,7 +390,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <span class="lbl">Overlays</span>
   <button class="lb contours" id="b-currents" onclick="toggleCurrents()" title="Overlay real geostrophic surface current arrows on any layer">➜ Currents</button>
   <button class="lb contours" id="b-contours" onclick="toggleContours()" title="Overlay real SLA contour lines on any layer, for comparison">〰 SLA contours</button>
-  <button class="lb contours" id="b-hotspots" onclick="toggleHotspots()" title="Analyze real SST temperature breaks, chlorophyll fronts, SLA fronts, canyon-edge bathymetry and current speed in view, and flag the strongest combined signal points" style="display:none">🎯 Hotspots</button>
+  <button class="lb contours" id="b-hotspots" onclick="toggleHotspots()" title="Analyze real SST temperature breaks, chlorophyll fronts, SLA fronts, canyon-edge bathymetry and current speed in view, and flag the strongest combined signal points" style="display:none">🎯<span class="lb-text"> Hotspots</span></button>
   <div class="sep"></div>
   <span class="lbl">Tools</span>
   <button class="lb ruler" id="b-forecast" onclick="toggleForecastMode()" title="Click a point on the map for a 16-day forecast: wind, waves, swell, tide, pressure, moon phase">📈 Forecast</button>
@@ -396,7 +402,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
        spurious SST/Chl/SLA reading marker under it every time it was
        pressed. Living here in the toolbar instead — a sibling of #map, not
        a child — sidesteps that entirely, not just visually relocates it. -->
-  <button class="lb" id="sb-toggle" onclick="toggleSidebar()" aria-label="Toggle info panel">ℹ Info</button>
+  <button class="lb" id="sb-toggle" onclick="toggleSidebar()" aria-label="Toggle info panel">ℹ<span class="lb-text"> Info</span></button>
 </div>
 
 <!-- Map -->
