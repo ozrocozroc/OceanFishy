@@ -215,6 +215,10 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 /* Mobile sidebar drawer toggle (hidden on desktop) */
 #sb-toggle{display:none}
 
+/* Ocean layer dropdown — mobile-only alternative to the 5 layer buttons,
+   see the @media block below for the actual swap. */
+#ocean-layer-select{display:none}
+
 @media(max-width:640px){
   /* #datebar now shares the header row with the logo, region select, and
      live indicator (previously its own full-width row) — on a narrow screen
@@ -223,6 +227,12 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
      NOAA/NASA live indicator, prioritizing the date chips and region picker. */
   .dbl{display:none}
   .live{display:none}
+
+  /* Ocean layer: 5 buttons -> 1 dropdown, same idea as the Base row's
+     button-group-to-select swap — cuts a bunch of wrapped toolbar rows down
+     to one, freeing up real vertical space above the map on a phone screen. */
+  #b-sst,#b-chl,#b-chlOlci,#b-alt,#b-depth{display:none}
+  #ocean-layer-select{display:inline-block}
 
   /* Now a normal .lb toolbar button living in #lbar (Tools group) instead of
      a floating pill over the map — just needs to actually show up here. */
@@ -341,6 +351,18 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <button class="lb chl"    id="b-chlOlci" onclick="setLayer('chlOlci')" title="Copernicus Sentinel-3 OLCI daily — ~2-3 day lag"><span class="bdot chl"></span>OLCI <span style="font-size:9px;color:var(--dim)">2-3d</span></button>
   <button class="lb alt"    id="b-alt" onclick="setLayer('alt')"><span class="bdot alt"></span>Altimetry</button>
   <button class="lb depth"  id="b-depth" onclick="setLayer('depth')"><span class="bdot depth"></span>Depth</button>
+  <!-- Mobile-only alternative to the 5 buttons above (hidden on mobile via
+       @media, see CSS) — a dropdown needs an explicit "Off" option since
+       there's no native "click the same option again to deselect" gesture
+       for a <select>, unlike the button row's click-active-again toggle. -->
+  <select id="ocean-layer-select" class="hsel" onchange="setLayer(this.value)">
+    <option value="off">Off</option>
+    <option value="sst">SST</option>
+    <option value="chl">Chl VIIRS (~3wk)</option>
+    <option value="chlOlci">Chl OLCI (2-3d)</option>
+    <option value="alt">Altimetry</option>
+    <option value="depth">Depth</option>
+  </select>
   <div class="sep"></div>
   <div style="display:flex;align-items:center;gap:6px">
     <label style="font-size:11px;color:var(--dim)">Opacity</label>
@@ -2348,6 +2370,13 @@ function setLayer(type) {
   curLayer = type;
   ['sst','chl','chlOlci','alt','depth'].forEach(t => document.getElementById('b-'+t)?.classList.remove('on'));
   document.getElementById('b-'+type)?.classList.add('on');
+  // Keep the mobile dropdown's displayed value in sync regardless of which
+  // input (button or dropdown) actually changed the layer — if it drifted
+  // out of sync, selecting an already-active layer from the dropdown would
+  // still fire onchange (browser only skips onchange when the value truly
+  // isn't changing), which would wrongly trigger the toggle-off check above.
+  const sel = document.getElementById('ocean-layer-select');
+  if (sel) sel.value = type;
   updateLegend();
   if (type !== 'off') updateAvailNote(LAYERS[type]);
   else {
