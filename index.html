@@ -330,8 +330,19 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
      in the grid's own rows), so it's the first thing to go; tightening the
      header padding/gaps claws back a bit more. */
   #forecast-panel #fc-summary{display:none}
-  #forecast-panel > div:first-child{padding:6px 8px;gap:6px 8px}
+  #forecast-panel > div:first-child{padding:6px 8px;gap:6px 8px;flex-wrap:wrap}
   #forecast-panel #fc-coords{font-size:9px}
+  /* The wave-model dropdown in particular shows full option text like
+     "ECMWF WAM 9km (recommended)" — at ~194px wide with flex-shrink:0 and
+     no wrap on its container, the pair of dropdowns didn't just take extra
+     height, they overflowed the panel's width outright and pushed the ✕
+     close button off past the visible edge, off-screen and unreachable
+     without horizontal scroll. Capping both dropdowns' width (native
+     <select> truncates the displayed value automatically, full text still
+     in the option list and the title tooltip) and letting the header's
+     right-hand group wrap fixes both the overflow and the wasted height. */
+  #fc-weather-model,#fc-model{max-width:78px;font-size:9px;padding:3px 4px}
+  #forecast-panel > div:first-child > div:last-child{flex-wrap:wrap;gap:6px;row-gap:4px}
 }
 </style>
 </head>
