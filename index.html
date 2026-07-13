@@ -325,11 +325,16 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   /* The header (title + coords + weather-icon summary + two model
      dropdowns) was wrapping into 3 stacked rows on a narrow screen, eating
      most of the panel's already-tight 33vh before the actual hourly grid —
-     the whole point of the panel — even started. fc-summary is pure
-     duplication (the same Wind/Wave numbers already sit a few pixels below
-     in the grid's own rows), so it's the first thing to go; tightening the
-     header padding/gaps claws back a bit more. */
-  #forecast-panel #fc-summary{display:none}
+     the whole point of the panel — even started, so header padding/gaps are
+     tightened below to claw room back.
+     fc-summary itself duplicates numbers that are already visible in the
+     grid's own rows *while that hour's column is on screen* — but once the
+     sticky header lets you scroll down to Wave/Swell/Tide, the Wind/Wave
+     numbers scroll out of view too, and this was the only place still
+     showing a live readout for whatever hour is currently scrubbed. Keep it
+     on mobile (just shrunk) rather than hiding it, or dragging the timeline
+     has no visible effect at all once you're scrolled past the icon row. */
+  #forecast-panel #fc-summary{font-size:9px;gap:5px}
   #forecast-panel > div:first-child{padding:6px 8px;gap:6px 8px;flex-wrap:wrap}
   #forecast-panel #fc-coords{font-size:9px}
   /* The wave-model dropdown in particular shows full option text like
@@ -2335,8 +2340,12 @@ function renderForecastPanel(wx, marine) {
   const rows = [iconRow, tempRow, rainRow, windRow, pressRow, waveRow, swellRow, powerRow, tideRow];
   // Sticky only on mobile (see comment above dayRow) — the desktop panel is
   // tall enough that the header rarely scrolls out of view, so there's no
-  // need to risk disturbing its layout for a problem it doesn't have.
-  const headerSticky = compact ? 'position:sticky;top:0;z-index:4;' : '';
+  // need to risk disturbing its layout for a problem it doesn't have. Either
+  // way the header stays a positioned element (relative when not sticky) so
+  // it's the containing block for the drag-tag pinned to its bottom edge
+  // below, and top:100% there means "just under the header" rather than
+  // "100% of some taller unrelated ancestor."
+  const headerSticky = compact ? 'position:sticky;top:0;z-index:4;' : 'position:relative;';
 
   const tideFooter = extremes.length ? extremes.map(e => {
     const d = new Date(e.time + 'Z');
@@ -2348,11 +2357,11 @@ function renderForecastPanel(wx, marine) {
     <div id="fc-grid-wrap" style="position:relative">
       <div id="fc-header-grid" style="display:grid;grid-template-columns:${gridCols};width:${gridWidth}px;background:#0f1b2e;${headerSticky}">
         ${dayRow}${hourRow}
+        <div id="fc-cursor-tag" style="position:absolute;top:100%;left:-24px;background:#e8a83a;color:#0b1320;font-size:10px;font-weight:700;padding:4px 8px;border-radius:4px;white-space:nowrap;cursor:ew-resize;pointer-events:auto;touch-action:none;box-shadow:0 1px 4px rgba(0,0,0,.4);z-index:5">12AM</div>
       </div>
       <div id="fc-grid" style="display:grid;grid-template-columns:${gridCols};width:${gridWidth}px;position:relative">
         ${rows.join('')}
         <div id="fc-cursor" style="position:absolute;top:0;bottom:0;width:0;pointer-events:none;z-index:5">
-          <div id="fc-cursor-tag" style="position:absolute;top:2px;left:-24px;background:#e8a83a;color:#0b1320;font-size:10px;font-weight:700;padding:4px 8px;border-radius:4px;white-space:nowrap;cursor:ew-resize;pointer-events:auto;touch-action:none;box-shadow:0 1px 4px rgba(0,0,0,.4)">12AM</div>
           <div style="position:absolute;top:0;bottom:0;left:0;width:2px;background:#e8a83a"></div>
         </div>
       </div>
@@ -2387,15 +2396,23 @@ function fcScrubTo(ci) {
   const { wx, marine, colTimes, colW, labelW } = fcState;
   const hi = colTimes[ci];
 
+  const colCenter = labelW + ci*colW + colW/2;
   const cursor = document.getElementById('fc-cursor');
-  if (cursor) cursor.style.left = (labelW + ci*colW + colW/2) + 'px';
+  if (cursor) cursor.style.left = colCenter + 'px';
 
   const d = new Date(wx.hourly.time[hi] + 'Z');
   const dowShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const h = d.getHours();
   const hourLabel = h===0 ? '12AM' : h<12 ? h+'AM' : h===12 ? '12PM' : (h-12)+'PM';
+  // The tag now lives in #fc-header-grid (pinned to the sticky header, see
+  // openForecastPanel/dayRow comments) rather than nested inside #fc-cursor
+  // in #fc-grid, so it needs its own left offset instead of inheriting one
+  // from a shared wrapper — same column-center math, same -24px self-inset.
   const tag = document.getElementById('fc-cursor-tag');
-  if (tag) tag.textContent = `${dowShort[d.getDay()]} ${d.getDate()} ${hourLabel}`;
+  if (tag) {
+    tag.style.left = (colCenter - 24) + 'px';
+    tag.textContent = `${dowShort[d.getDay()]} ${d.getDate()} ${hourLabel}`;
+  }
 
   const code = wx.hourly.weather_code ? wx.hourly.weather_code[hi] : null;
   const isDay = wx.hourly.is_day ? wx.hourly.is_day[hi] : 1;
