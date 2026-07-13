@@ -420,7 +420,14 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
     </div>
 
     <!-- Live values panel — shows last clicked value for all layers -->
-    <div class="panel" id="live-panel">
+    <!-- Temporarily disabled — same data now shows in the click popup
+         (syncLivePopup), so this sidebar panel is redundant for most users.
+         Left in the DOM (just hidden) rather than removed: syncLivePopup()
+         reads from the #live-* spans inside it on every click, and a hidden
+         element's textContent still updates normally, so the popup keeps
+         working with this panel invisible. Delete the inline
+         style="display:none" below to bring it back. -->
+    <div class="panel" id="live-panel" style="display:none">
       <div class="pt">Live readings <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim)">(click map)</span></div>
       <div class="sr">
         <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--sst);display:inline-block;margin-right:5px"></span>SST <span style="font-size:9px;color:var(--dim)">(est.)</span></span>
