@@ -2225,8 +2225,31 @@ function renderForecastPanel(wx, marine) {
   const nightBg = (isDay) => isDay === 0
     ? 'background:rgba(4,7,16,.6);'
     : 'background:rgba(255,214,120,.2);';
+  // Opaque version of the same day/night tint, used only for the sticky
+  // hour row on mobile — the translucent nightBg() above is fine for the
+  // ordinary (non-sticky) rows, but a sticky row needs full opacity to stay
+  // legible as other rows scroll underneath it.
+  const nightBgSticky = (isDay) => isDay === 0 ? 'background:#04070f;' : 'background:#2e2410;';
 
-  let dayRow = label('');
+  // Mobile only: the day/hour header rows need to stay visible as the user
+  // scrolls down through Wind/Pressure/Wave/Swell/Tide, or the date/hour
+  // reference is lost by the time they reach the bottom rows. A first
+  // attempt applied position:sticky;top to the day/hour cells directly
+  // inside the single #fc-grid CSS Grid — that doesn't work, because a grid
+  // item's sticky offset is confined to its own grid track (row), and these
+  // rows are only ~20-24px tall within an 11-row grid, so there's no room
+  // for them to "stick" once scrolled past their own tiny row. The fix is
+  // structural: the day/hour rows are pulled out into their own sibling
+  // grid (#fc-header-grid, built separately below and assembled outside
+  // #fc-grid but still inside the scrolling #fc-grid-wrap), so sticky-top
+  // applies to it as an ordinary block-level element with the whole
+  // scrollable wrapper as its containing block, not a single grid row.
+  // Solid background rather than the translucent glass used elsewhere in
+  // the app — it sits directly over scrolling grid content, not the map/
+  // page background, so full opacity is what keeps it legible as rows
+  // scroll underneath, same reasoning as the row-label column's own
+  // (non-glass) sticky background above.
+  let dayRow = `<div style="position:sticky;left:0"></div>`;
   dayGroups.forEach(g => {
     // No 'Z'/time suffix: g.day is already local Y-M-D (see localDayKey), so
     // this constructs midnight in the BROWSER's local timezone directly —
@@ -2236,7 +2259,8 @@ function renderForecastPanel(wx, marine) {
     dayRow += `<div style="grid-column:span ${g.count};font-size:13px;font-weight:600;padding:${compact?'4px 0 4px 3px':'7px 0 7px 4px'};border-left:1px solid var(--bdr)">${dowFull[d.getDay()]} ${d.getDate()}</div>`;
   });
 
-  let hourRow = label('Hour'), iconRow = label('Weather'), tempRow = label('Temp °C'),
+  let hourRow = label('Hour');
+  let iconRow = label('Weather'), tempRow = label('Temp °C'),
       rainRow = label('Rain mm'), windRow = label('Wind/Gust km/h'),
       pressRow = label('Pressure hPa'), waveRow = label('Wave m'),
       swellRow = label('Swell m/s'), powerRow = label('Power kW/m'), tideRow = label('Tide m');
@@ -2265,7 +2289,7 @@ function renderForecastPanel(wx, marine) {
     const isDay = wx.hourly.is_day ? wx.hourly.is_day[hi] : 1;
     const nbg = nightBg(isDay);
 
-    hourRow += `<div class="fc-col" onclick="fcScrubTo(${ci})" style="${nbg}font-size:10px;color:var(--dim);text-align:center;padding:${compact?'3px 0':'5px 0'};cursor:pointer">${hourLabel}</div>`;
+    hourRow += `<div class="fc-col" onclick="fcScrubTo(${ci})" style="${compact ? nightBgSticky(isDay) : nbg}font-size:10px;color:var(--dim);text-align:center;padding:${compact?'3px 0':'5px 0'};cursor:pointer">${hourLabel}</div>`;
 
     const code = wx.hourly.weather_code ? wx.hourly.weather_code[hi] : null;
     iconRow += `<div style="${nbg}text-align:center;font-size:${compact?14:17}px;padding:${rowPad}">${weatherIcon(code, isDay)}</div>`;
@@ -2308,7 +2332,11 @@ function renderForecastPanel(wx, marine) {
   });
 
   const gridWidth = labelW + nCols*colW;
-  const rows = [dayRow, hourRow, iconRow, tempRow, rainRow, windRow, pressRow, waveRow, swellRow, powerRow, tideRow];
+  const rows = [iconRow, tempRow, rainRow, windRow, pressRow, waveRow, swellRow, powerRow, tideRow];
+  // Sticky only on mobile (see comment above dayRow) — the desktop panel is
+  // tall enough that the header rarely scrolls out of view, so there's no
+  // need to risk disturbing its layout for a problem it doesn't have.
+  const headerSticky = compact ? 'position:sticky;top:0;z-index:4;' : '';
 
   const tideFooter = extremes.length ? extremes.map(e => {
     const d = new Date(e.time + 'Z');
@@ -2317,7 +2345,10 @@ function renderForecastPanel(wx, marine) {
   }).join(' &nbsp;·&nbsp; ') : 'No tide extremes in range';
 
   const html = `
-    <div id="fc-grid-wrap" style="overflow:auto;position:relative">
+    <div id="fc-grid-wrap" style="position:relative">
+      <div id="fc-header-grid" style="display:grid;grid-template-columns:${gridCols};width:${gridWidth}px;background:#0f1b2e;${headerSticky}">
+        ${dayRow}${hourRow}
+      </div>
       <div id="fc-grid" style="display:grid;grid-template-columns:${gridCols};width:${gridWidth}px;position:relative">
         ${rows.join('')}
         <div id="fc-cursor" style="position:absolute;top:0;bottom:0;width:0;pointer-events:none;z-index:5">
@@ -2338,8 +2369,13 @@ function renderForecastPanel(wx, marine) {
   fcScrubTo(nowColIdx);
   setupFcDrag();
 
-  // Scroll so "now" starts near the left edge of the visible timeline
-  const wrap = document.getElementById('fc-grid-wrap');
+  // Scroll so "now" starts near the left edge of the visible timeline.
+  // #fc-body (not #fc-grid-wrap) is the actual scroll container for both
+  // axes — #fc-grid-wrap has no overflow of its own so that its sticky
+  // header child (see dayRow/headerSticky above) can stick relative to
+  // #fc-body's scrollport instead of being trapped against a wrapper that
+  // never itself scrolls.
+  const wrap = document.getElementById('fc-body');
   wrap.scrollLeft = Math.max(0, nowColIdx*colW - 20);
   syncSidebarToForecastPanel();
 }
@@ -2375,7 +2411,7 @@ function fcScrubTo(ci) {
 }
 
 function setupFcDrag() {
-  const wrap = document.getElementById('fc-grid-wrap');
+  const wrap = document.getElementById('fc-body');
   const tag = document.getElementById('fc-cursor-tag');
   if (!wrap || !tag || !fcState) return;
   let dragging = false;
