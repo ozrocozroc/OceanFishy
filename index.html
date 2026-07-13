@@ -420,6 +420,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <span class="lbl">Overlays</span>
   <button class="lb contours" id="b-currents" onclick="toggleCurrents()" title="Overlay real geostrophic surface current arrows on any layer">➜ Currents</button>
   <button class="lb contours" id="b-contours" onclick="toggleContours()" title="Overlay real SLA contour lines on any layer, for comparison">〰 SLA contours</button>
+  <button class="lb contours" id="b-depth-contours" onclick="toggleDepthContours()" title="Overlay real depth contour lines (isobaths at 5/10/20/30/50/75/100/150/200m) on any layer — reads structure like ledges and drop-offs more clearly than the Depth color layer alone">〰 Depth contours</button>
   <button class="lb contours" id="b-hotspots" onclick="toggleHotspots()" title="Analyze real SST temperature breaks, chlorophyll fronts, SLA fronts, canyon-edge bathymetry and current speed in view, and flag the strongest combined signal points" style="display:none">🎯<span class="lb-text"> Hotspots</span></button>
   <div class="sep"></div>
   <span class="lbl">Tools</span>
@@ -491,6 +492,10 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
       <div class="sr">
         <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--chl);display:inline-block;margin-right:5px"></span>Chl-a <span style="font-size:9px;color:var(--dim)">(est.)</span></span>
         <div style="text-align:right"><div class="sv" id="live-chl" style="color:var(--dim)">—</div></div>
+      </div>
+      <div class="sr">
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#4fd0e8;display:inline-block;margin-right:5px"></span>Visibility <span style="font-size:9px;color:var(--dim)">(live)</span></span>
+        <div style="text-align:right"><div class="sv" id="live-vis" style="color:var(--dim)">—</div></div>
       </div>
       <div class="sr">
         <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:var(--alt);display:inline-block;margin-right:5px"></span>SLA <span style="font-size:9px;color:var(--dim)">(live)</span></span>
@@ -759,6 +764,7 @@ let curDate    = todayStr();
 let oceanOverlay = null;
 let oceanLayerReqId = 0;
 let showContours = false;
+let showDepthContours = false;
 let showHotspots = false;
 let hotspotReqId = 0;
 let loadTimer    = null;
@@ -822,8 +828,10 @@ L.DomEvent.disableScrollPropagation(document.getElementById('export-form'));
 let baseLayer = null, baseLayer2 = null;
 const markGroup = L.layerGroup().addTo(map);
 const contourGroup = L.layerGroup().addTo(map);
+const depthContourGroup = L.layerGroup().addTo(map);
 const hotspotGroup = L.layerGroup().addTo(map);
 let contourReqId = 0;
+let depthContourReqId = 0;
 let currentReqId = 0;
 let showCurrents = false;
 const CURRENT_DS = {
@@ -986,6 +994,14 @@ function removeOverlay() {
 // old ±0.2m cap meant anything stronger just showed as one saturated outer
 // ring with no sense of how strong the core actually was.
 const CONTOUR_LEVELS = [-0.4, -0.3, -0.2, -0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7];
+
+// Depth contours (isobaths) — tighter spacing in the shallows where a spearo
+// or inshore angler actually cares about individual ledges/gutters, coarser
+// once you're well past any reasonable dive/inshore-fishing depth. srtm15plus
+// stores elevation (negative underwater), so these levels are negative too —
+// marchingSquares() runs on the raw grid values, not the display-friendly
+// abs() depth shown elsewhere (getGebcoDepth's live-depth readout).
+const DEPTH_CONTOUR_LEVELS = [-5, -10, -20, -30, -50, -75, -100, -150, -200];
 // Above this |SLA|, a contour ring alone doesn't communicate "this is a
 // strong eddy" clearly enough — flag the local extremum directly.
 const EDDY_CORE_THRESHOLD = 0.3;
@@ -1178,6 +1194,41 @@ function eddyCoreIcon(slaM, kind) {
     html: `<div style="transform:translate(-50%,-50%);background:${bg};color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:10px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.5);border:1.5px solid rgba(255,255,255,.85)">${label}</div>`,
     iconSize: [0, 0],
   });
+}
+
+// ── Depth contours (isobaths) ──────────────────────────────────────────────
+// Structure — ledges, drop-offs, gutters — is what a spearo actually hunts,
+// and that's far easier to read off contour lines than off the Depth color
+// layer's gradient alone (a raster fade doesn't show you exactly where an
+// edge is, just roughly where it is). Reuses fetchHotspotBathyGrid (already
+// built for the hotspot finder) and the same marchingSquares() machinery as
+// the SLA contours above — same static SRTM15+ source, just a different
+// grid and level set.
+async function updateDepthContours(bounds) {
+  const myReqId = ++depthContourReqId;
+  try {
+    const { latSet, lonSet, grid } = await fetchHotspotBathyGrid(bounds, 120);
+    if (myReqId !== depthContourReqId) return; // a newer request superseded this one
+    depthContourGroup.clearLayers();
+    if (latSet.length < 2 || lonSet.length < 2) return;
+
+    for (const level of DEPTH_CONTOUR_LEVELS) {
+      const segments = marchingSquares(grid, latSet, lonSet, level);
+      if (!segments.length) continue;
+      // The shallowest line (-5m) gets the same white-halo treatment as the
+      // SLA zero line — it's the one most likely to matter for safety
+      // (near-surface reef/rock) and needs to read against any basemap.
+      if (level === DEPTH_CONTOUR_LEVELS[0]) {
+        L.polyline(segments, { color: '#ffffff', weight: 2.5, opacity: 0.85, interactive: false }).addTo(depthContourGroup);
+        L.polyline(segments, { color: '#0b6b8f', weight: 1.7, opacity: 1, interactive: false }).addTo(depthContourGroup);
+      } else {
+        L.polyline(segments, { color: '#6bbfd8', weight: 1, opacity: 0.55, interactive: false }).addTo(depthContourGroup);
+      }
+    }
+  } catch (err) {
+    if (myReqId !== depthContourReqId) return;
+    console.log('OceanFishy depth contour fetch failed:', err.message);
+  }
 }
 
 // ── Fishing hotspot finder ──────────────────────────────────────────────────
@@ -2624,6 +2675,7 @@ function syncLivePopup() {
     `<b>Live readings</b><br>` +
     `SST: ${get('live-sst')}<br>` +
     `Chl-a: ${get('live-chl')}<br>` +
+    `Visibility: ${get('live-vis')}<br>` +
     `SLA: ${get('live-alt')}<br>` +
     `Depth: ${get('live-depth')}<br>` +
     `Current: ${get('live-cur')}<br>` +
@@ -2776,6 +2828,30 @@ async function updateLiveReadings(lat, lng) {
   }
   syncLivePopup();
 
+  // Fetch real chlorophyll async — update when ready, then derive an
+  // estimated Secchi-depth visibility from it (see getRealChl/visibilityNote
+  // above for why this is real data rather than the simulated live-chl row).
+  document.getElementById('live-vis').textContent = '…';
+  document.getElementById('live-vis').style.color = 'var(--acc)';
+  try {
+    const chlReal = await getRealChl(lat, lng);
+    if (chlReal === null || chlReal <= 0) {
+      document.getElementById('live-vis').textContent = 'n/a';
+      document.getElementById('live-vis').style.color = 'var(--dim)';
+    } else {
+      const vis = 4.6 / Math.pow(chlReal, 0.44);
+      document.getElementById('live-vis').textContent = '~' + vis.toFixed(0) + ' m (est.)';
+      document.getElementById('live-vis').style.color = 'var(--txt)';
+      if (curLayer === 'off') {
+        document.getElementById('live-note').innerHTML = visibilityNote(vis);
+      }
+    }
+  } catch(err) {
+    document.getElementById('live-vis').textContent = 'n/a';
+    document.getElementById('live-vis').style.color = 'var(--dim)';
+  }
+  syncLivePopup();
+
   // Fetch real depth async — update when ready
   document.getElementById('live-depth').textContent = '…';
   document.getElementById('live-depth').style.color = 'var(--acc)';
@@ -2904,6 +2980,40 @@ async function getRealSla(lat, lng) {
 
 function slaNote(cm) {
   return cm>10?'↑ Warm eddy — concentrate bait & gamefish':cm>0?'→ Slight positive — stable conditions':cm>-10?'→ Slight negative — cooler water':'↓ Cold eddy — deepwater upwelling';
+}
+
+// ── Real chlorophyll-a at a lat/lng point (for the Visibility estimate) ────
+// Same single-point griddap pattern as getRealSla/getGebcoDepth — the
+// existing live-chl row is deliberately labeled "(est.)" and stays a
+// simulated value (see simVal), but Visibility is a new field and there's no
+// reason to build it on a fake number when the real OLCI dataset (already
+// used for the Chl OLCI color layer and the hotspot finder's Chl grid) is a
+// single extra fetch away. Same altitude-axis gotcha as fetchHotspotChlGrid:
+// this dataset has a fixed (0.0) altitude dimension between time and
+// lat/lng that 404s ("Start is less than the axis minimum") if omitted.
+async function getRealChl(lat, lng) {
+  const latR = lat.toFixed(3), lngR = lng.toFixed(3);
+  const target = `https://coastwatch.noaa.gov/erddap/griddap/noaacwS3AOLCIchlaDaily.json?chlor_a[(last)][(0.0)][(${latR})][(${lngR})]`;
+  const data = await fetchJsonViaCorsProxy(target);
+  const rows = data?.table?.rows;
+  if (rows && rows.length > 0) {
+    const v = rows[0][4];
+    return v == null ? null : (typeof v === 'number' ? v : parseFloat(v));
+  }
+  return null;
+}
+
+// Secchi-depth-from-chlorophyll estimate — same empirical relationship
+// (Secchi ≈ 4.6 / chl^0.44) already used for the fake preview in simVal's
+// Chl note, just fed a real chlor_a value here instead. It's still only an
+// estimate (Secchi depth is a specific measured quantity, chlorophyll is
+// just the best proxy for it we have real data for) and doesn't account for
+// non-biological turbidity — recent swell/wave action stirring up sediment,
+// river runoff after rain — which the Swell reading above can help judge by
+// eye, so the note says as much rather than presenting a false-precision
+// number in isolation.
+function visibilityNote(vis) {
+  return vis>15?'😎 Excellent — blue water, ideal spearfishing viz':vis>8?'🙂 Good — workable viz for reef/inshore spearfishing':vis>4?'😐 Fair — marginal, fish will see you first':'😕 Poor — likely turbid, low viz diving';
 }
 
 // ── Real current speed/direction at a lat/lng point ────────────────────────
@@ -3557,10 +3667,11 @@ function importMarks(file) {
 // layer is active. Share one debounce timer — using loadTimer for both would
 // let one cancel the other's pending refresh.
 function scheduleOverlayRefresh() {
-  if (!showContours && !showCurrents && !showHotspots) return;
+  if (!showContours && !showDepthContours && !showCurrents && !showHotspots) return;
   clearTimeout(overlayRefreshTimer);
   overlayRefreshTimer = setTimeout(() => {
     if (showContours) updateContours(curDate, map.getBounds());
+    if (showDepthContours) updateDepthContours(map.getBounds());
     if (showCurrents) updateCurrents(curDate, map.getBounds());
     if (showHotspots) updateHotspots(map.getBounds());
   }, 600);
@@ -3625,6 +3736,16 @@ function toggleContours() {
     updateContours(curDate, map.getBounds());
   } else {
     contourGroup.clearLayers();
+  }
+}
+
+function toggleDepthContours() {
+  showDepthContours = !showDepthContours;
+  document.getElementById('b-depth-contours').classList.toggle('on', showDepthContours);
+  if (showDepthContours) {
+    updateDepthContours(map.getBounds());
+  } else {
+    depthContourGroup.clearLayers();
   }
 }
 
