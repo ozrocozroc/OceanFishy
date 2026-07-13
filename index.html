@@ -2273,17 +2273,20 @@ function renderForecastPanel(wx, marine) {
   // Solid dart / navigation-pin arrow — a single notched-tail polygon reads
   // unambiguously at any rotation, unlike a bare triangle (no visual "tail"
   // to anchor the eye) — same shape GPS heading indicators use.
-  // At rotate(0deg) the dart's tip points straight up (North) at rest, so
-  // rotating by the raw "from" bearing directly (no +180) points it toward
-  // the named source direction — same convention as compassDir()'s arrows
-  // in Live Readings/the click popup (e.g. both point "up" for a wind FROM
-  // the north). A stale +180 flip here (leftover from the same now-fixed
-  // flow-toward bug, see getRealWind/getRealSwell) had this grid's arrows
-  // pointing 180° opposite the popup's for the same hour and data.
+  // At rotate(0deg) the dart's tip points straight up (North) at rest. This
+  // function just renders whatever bearing it's handed — the from-vs-to
+  // convention decision happens once, at toFlowDir() below, applied to the
+  // raw wind/wave/swell values before they reach here (see getRealWind's
+  // comment for why: matches Windy's flow-direction arrows per user
+  // preference, rather than mariner "from" terminology).
   const dirArrow = (deg, size) => deg == null ? '' : `
     <svg width="${size}" height="${size}" viewBox="0 0 20 20" style="display:inline-block;vertical-align:middle;transform:rotate(${deg}deg)">
       <polygon points="10,1 17,19 10,14.5 3,19" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/>
     </svg>`;
+  // Open-Meteo's wind_direction_10m/wave_direction/swell_wave_direction are
+  // all reported "from" (meteorological/mariner convention); +180 converts
+  // to "toward" so both the arrow and the printed degrees match Windy.
+  const toFlowDir = (deg) => deg == null ? null : (deg + 180) % 360;
 
   let nowColIdx = 0;
   colTimes.forEach((hi, ci) => {
@@ -2309,7 +2312,7 @@ function renderForecastPanel(wx, marine) {
 
     const wkt = wx.hourly.wind_speed_10m[hi], gkt = wx.hourly.wind_gusts_10m[hi], wdir = wx.hourly.wind_direction_10m[hi];
     windRow += `<div style="text-align:center;padding:${compact?'2px 0 2px':'4px 0 3px'};background:${windColor(wkt)}">
-      <div style="line-height:1;margin-bottom:2px">${dirArrow(wdir,compact?10:13)}</div>
+      <div style="line-height:1;margin-bottom:2px">${dirArrow(toFlowDir(wdir),compact?10:13)}</div>
       <div style="font-size:11px;font-weight:700;line-height:1.2">${wkt!=null?Math.round(wkt):'–'}</div>
       <div style="font-size:10px;opacity:.75;line-height:1.15">${gkt!=null?Math.round(gkt):'–'}</div>
     </div>`;
@@ -2319,13 +2322,13 @@ function renderForecastPanel(wx, marine) {
 
     const wh = marine.hourly.wave_height[hi], wavedir = marine.hourly.wave_direction?.[hi];
     waveRow += `<div style="background:${waveColor(wh)};text-align:center;font-size:11px;padding:${rowPad}">
-      <div style="line-height:1">${dirArrow(wavedir,compact?9:11)}</div>
+      <div style="line-height:1">${dirArrow(toFlowDir(wavedir),compact?9:11)}</div>
       <div>${wh!=null?wh.toFixed(1):'–'}</div>
     </div>`;
 
     const sh = marine.hourly.swell_wave_height[hi], sp = marine.hourly.swell_wave_period[hi], sdir = marine.hourly.swell_wave_direction?.[hi];
     swellRow += `<div style="background:${waveColor(sh)};text-align:center;font-size:10px;padding:${rowPad}">
-      <div style="line-height:1">${dirArrow(sdir,compact?9:11)}</div>
+      <div style="line-height:1">${dirArrow(toFlowDir(sdir),compact?9:11)}</div>
       <div>${sh!=null?sh.toFixed(1)+'/'+(sp!=null?Math.round(sp):'–'):'–'}</div>
     </div>`;
 
@@ -2898,18 +2901,17 @@ function compassDir(deg) {
 // on at once, and cluttered small screens especially. A single live number
 // at the exact point you clicked does the same job without the map mess.
 //
-// Direction convention: wind and swell are reported by mariners/meteorology
-// as the direction they're coming FROM (a "westerly" blows from the west) —
-// this is the raw value Open-Meteo returns, used as-is here. Ocean current
-// is the opposite, universally reported as "set" — the direction it's
-// flowing TO — which is why getRealCurrent below computes its bearing
-// directly from the u/v vector with no flip. Do not add a +180 here to
-// "match" current's convention; they're deliberately different because real
-// mariners use them differently. (A previous version flipped wind/swell to
-// a flow-toward bearing to match the now-removed map arrows' visual flow
-// style, then fed that same flipped value into the compass label meant for
-// source-direction naming — wind blowing west-to-east was mislabeled "E"
-// instead of "W"/"westerly". Confirmed and fixed.)
+// Direction convention: Open-Meteo reports wind/swell direction the way
+// mariners/meteorology name it — where it's coming FROM (a "westerly" blows
+// from the west). Windy, which the user compares against, instead draws its
+// arrows pointing where the wind/swell is heading TO (flow direction), so a
+// straight pass-through of the raw "from" bearing looks arrow-flipped versus
+// Windy for identical underlying data. Per explicit user preference (used to
+// reading Windy), both the arrow rotation AND the printed degrees here are
+// converted to flow-toward (+180) at the point where these values are read,
+// so this app's numbers visually agree with Windy's rather than with mariner
+// terminology. Ocean current already reports "set" (flow-TO) natively — see
+// getRealCurrent below — so it's untouched; do not add a further +180 there.
 async function getRealWind(lat, lng) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lng.toFixed(3)}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m`;
   const resp = await fetch(url);
@@ -2917,7 +2919,7 @@ async function getRealWind(lat, lng) {
   const data = await resp.json();
   const c = data.current;
   if (!c || c.wind_speed_10m == null || c.wind_direction_10m == null) return null;
-  return { speedKmh: c.wind_speed_10m, gustKmh: c.wind_gusts_10m, dirDeg: c.wind_direction_10m };
+  return { speedKmh: c.wind_speed_10m, gustKmh: c.wind_gusts_10m, dirDeg: (c.wind_direction_10m + 180) % 360 };
 }
 
 async function getRealSwell(lat, lng) {
@@ -2927,7 +2929,7 @@ async function getRealSwell(lat, lng) {
   const data = await resp.json();
   const c = data.current;
   if (!c || c.swell_wave_height == null || c.swell_wave_direction == null) return null;
-  return { heightM: c.swell_wave_height, dirDeg: c.swell_wave_direction };
+  return { heightM: c.swell_wave_height, dirDeg: (c.swell_wave_direction + 180) % 360 };
 }
 
 // ── Real "latest available" date detection ────────────────────────────────────
