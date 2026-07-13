@@ -172,6 +172,13 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 }
 .mark-pin-selected{animation:markPulse 1.6s ease-out infinite;border-radius:50%}
 
+@keyframes userLocPulse{
+  0%   {box-shadow:0 0 0 0 rgba(42,159,214,.5)}
+  70%  {box-shadow:0 0 0 12px rgba(42,159,214,0)}
+  100% {box-shadow:0 0 0 0 rgba(42,159,214,0)}
+}
+.user-loc-dot{animation:userLocPulse 2s ease-out infinite;border-radius:50%}
+
 /* Known-marks group disclosures — replace the default browser summary marker
    (inconsistent styling, cramped against the label) with a themed chevron and
    give each group breathing room so expanding several groups at once (or
@@ -418,6 +425,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <span class="lbl">Tools</span>
   <button class="lb ruler" id="b-forecast" onclick="toggleForecastMode()" title="Click a point on the map for a 16-day forecast: wind, waves, swell, tide, pressure, moon phase">📈 Forecast</button>
   <button class="lb ruler" id="b-ruler" onclick="toggleRuler()">📏 Ruler</button>
+  <button class="lb ruler" id="b-locate" onclick="locateMe()" title="Show your current GPS location on the map">📍 Locate me</button>
   <button class="lb" id="b-ruler-clear" onclick="clearRuler()" style="display:none">✕ Clear</button>
   <!-- Mobile-only sidebar drawer toggle. Used to float over the map (see
        #sb-toggle CSS) which, being a descendant of #map/the Leaflet
@@ -2639,6 +2647,46 @@ function placeAddMarkPreview(lat, lng) {
 }
 function clearAddMarkPreview() {
   if (addMarkPreview) { map.removeLayer(addMarkPreview); addMarkPreview = null; }
+}
+
+// ── "Locate me" (browser GPS) ──────────────────────────────────────────────
+// Separate from clickMark/addMarkPreview (both re-used per-click dots) since
+// this one marker should persist and just move as watchPosition fires, not
+// get clobbered by an unrelated map click elsewhere.
+let userLocMarker = null, userLocAccuracy = null;
+const userLocIcon = L.divIcon({
+  className: '',
+  html: `<div class="user-loc-dot" style="width:14px;height:14px;background:var(--acc);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>`,
+  iconSize: [14, 14],
+  iconAnchor: [7, 7],
+});
+function locateMe() {
+  if (!navigator.geolocation) {
+    setStatus('Geolocation isn’t supported by this browser.');
+    return;
+  }
+  setStatus('Locating you…');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+      if (userLocMarker) map.removeLayer(userLocMarker);
+      if (userLocAccuracy) map.removeLayer(userLocAccuracy);
+      userLocAccuracy = L.circle([lat, lng], { radius: accuracy, color: '#2a9fd6', weight: 1, fillColor: '#2a9fd6', fillOpacity: .12, interactive: false }).addTo(map);
+      userLocMarker = L.marker([lat, lng], { icon: userLocIcon, keyboard: false }).addTo(map)
+        .bindPopup(`<b>Your location</b><br>${lat.toFixed(4)}, ${lng.toFixed(4)}<br><span style="color:var(--dim);font-size:10px">±${Math.round(accuracy)}m accuracy</span>`, { className: 'of-glass-popup' });
+      map.setView([lat, lng], Math.max(map.getZoom(), 11));
+      setStatus('');
+    },
+    err => {
+      const msg = err.code === err.PERMISSION_DENIED
+        ? 'Location permission denied — allow location access in your browser settings to use this.'
+        : err.code === err.TIMEOUT
+        ? 'Location request timed out — try again.'
+        : 'Couldn’t get your location right now.';
+      setStatus(msg);
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+  );
 }
 
 map.on('click', async e => {
