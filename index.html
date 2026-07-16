@@ -2689,7 +2689,15 @@ function syncLivePopup() {
   // innerHTML, not textContent — live-cur/live-wind/live-swell now embed an
   // animated SVG arrow (see animatedCompassDir), which textContent would
   // silently strip down to nothing since SVG has no text nodes of its own.
-  const get = id => document.getElementById(id).innerHTML;
+  // Wrapped in a span carrying the source element's OWN color: that color is
+  // set directly on the #live-* div (e.g. var(--sst)/var(--chl)/"n/a" dim),
+  // but only innerHTML — not the div's style — gets copied in here, so
+  // without this wrapper every value rendered in the popup's default text
+  // color regardless of what updateLiveReadings() had actually set.
+  const get = id => {
+    const el = document.getElementById(id);
+    return `<span style="color:${el.style.color}">${el.innerHTML}</span>`;
+  };
   const note = document.getElementById('live-note').innerHTML;
   const html =
     `<b>Live readings</b><br>` +
