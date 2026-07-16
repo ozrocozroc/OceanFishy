@@ -2694,22 +2694,25 @@ function syncLivePopup() {
   // but only innerHTML — not the div's style — gets copied in here, so
   // without this wrapper every value rendered in the popup's default text
   // color regardless of what updateLiveReadings() had actually set.
-  const get = id => {
+  // Colors the label too now, not just the value — trying it per user
+  // request to see if a fully color-matched "SST: 23°C" reads easier than a
+  // plain-white label next to a colored number.
+  const get = (label, id) => {
     const el = document.getElementById(id);
-    return `<span style="color:${el.style.color}">${el.innerHTML}</span>`;
+    return `<span style="color:${el.style.color}">${label}: ${el.innerHTML}</span>`;
   };
   const note = document.getElementById('live-note').innerHTML;
   const html =
     `<b>Live readings</b><br>` +
-    `SST: ${get('live-sst')}<br>` +
-    `Chl-a: ${get('live-chl')}<br>` +
-    `Visibility: ${get('live-vis')}<br>` +
-    `SLA: ${get('live-alt')}<br>` +
-    `Depth: ${get('live-depth')}<br>` +
-    `Current: ${get('live-cur')}<br>` +
-    `Wind: ${get('live-wind')}<br>` +
-    `Swell: ${get('live-swell')}<br>` +
-    `<span style="color:var(--dim);font-size:10px">${get('live-coord')}</span>` +
+    `${get('SST', 'live-sst')}<br>` +
+    `${get('Chl-a', 'live-chl')}<br>` +
+    `${get('Visibility', 'live-vis')}<br>` +
+    `${get('SLA', 'live-alt')}<br>` +
+    `${get('Depth', 'live-depth')}<br>` +
+    `${get('Current', 'live-cur')}<br>` +
+    `${get('Wind', 'live-wind')}<br>` +
+    `${get('Swell', 'live-swell')}<br>` +
+    `<span style="color:var(--dim);font-size:10px">${document.getElementById('live-coord').innerHTML}</span>` +
     (note ? `<br>${note}` : '');
   clickMark.getPopup().setContent(html);
 }
