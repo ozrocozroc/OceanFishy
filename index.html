@@ -179,6 +179,23 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 }
 .user-loc-dot{animation:userLocPulse 2s ease-out infinite;border-radius:50%}
 
+/* Direction-arrow "flow" animation (Live Readings/click popup Wind/Swell/
+   Current rows) — a static arrow+degrees told you which way, but gave no
+   sense of how strong. Nudging the arrow forward along its own facing
+   direction and back, faster for a stronger reading, gives an at-a-glance
+   speed cue without adding another number. The rotation itself is baked
+   into --deg (set inline per reading, since each row's bearing differs) and
+   referenced here via var() so one shared keyframes rule covers all three
+   rows — translateY moves along the arrow's OWN rotated axis because the
+   rotate() is re-applied at each keyframe step, not layered on separately
+   (a plain CSS animation replaces the whole `transform` value per frame, so
+   a static rotate() set outside the animation would just get clobbered). */
+@keyframes flowPulse{
+  0%   {transform:rotate(var(--deg,0deg)) translateY(0) scale(1);opacity:.85}
+  50%  {transform:rotate(var(--deg,0deg)) translateY(-4px) scale(1.15);opacity:1}
+  100% {transform:rotate(var(--deg,0deg)) translateY(0) scale(1);opacity:.85}
+}
+
 /* Known-marks group disclosures — replace the default browser summary marker
    (inconsistent styling, cramped against the label) with a themed chevron and
    give each group breathing room so expanding several groups at once (or
@@ -2669,7 +2686,10 @@ function placeClickMark(lat, lng) {
 // rather than duplicating its fetch/formatting logic a second time.
 function syncLivePopup() {
   if (!clickMark || !clickMark.getPopup()) return;
-  const get = id => document.getElementById(id).textContent;
+  // innerHTML, not textContent — live-cur/live-wind/live-swell now embed an
+  // animated SVG arrow (see animatedCompassDir), which textContent would
+  // silently strip down to nothing since SVG has no text nodes of its own.
+  const get = id => document.getElementById(id).innerHTML;
   const note = document.getElementById('live-note').innerHTML;
   const html =
     `<b>Live readings</b><br>` +
@@ -2900,7 +2920,7 @@ async function updateLiveReadings(lat, lng) {
       document.getElementById('live-cur').textContent = 'n/a';
       document.getElementById('live-cur').style.color = 'var(--dim)';
     } else {
-      document.getElementById('live-cur').textContent = cur.speedKt.toFixed(2) + ' kt · ' + compassDir(cur.dirDeg);
+      document.getElementById('live-cur').innerHTML = cur.speedKt.toFixed(2) + ' kt · ' + animatedCompassDir(cur.dirDeg, cur.speedKt / 1.5);
       document.getElementById('live-cur').style.color = 'var(--txt)';
       if (curLayer === 'off') {
         document.getElementById('live-note').innerHTML = currentNote(cur.speedKt);
@@ -2929,14 +2949,14 @@ async function updateLiveReadings(lat, lng) {
       document.getElementById('live-wind').textContent = 'n/a';
       document.getElementById('live-wind').style.color = 'var(--dim)';
     } else {
-      document.getElementById('live-wind').textContent = Math.round(wind.speedKmh) + ' km/h · ' + compassDir(wind.dirDeg) + (wind.gustKmh != null ? ' (gust ' + Math.round(wind.gustKmh) + ')' : '');
+      document.getElementById('live-wind').innerHTML = Math.round(wind.speedKmh) + ' km/h · ' + animatedCompassDir(wind.dirDeg, wind.speedKmh / 50) + (wind.gustKmh != null ? ' (gust ' + Math.round(wind.gustKmh) + ')' : '');
       document.getElementById('live-wind').style.color = 'var(--txt)';
     }
     if (swell === null) {
       document.getElementById('live-swell').textContent = 'n/a';
       document.getElementById('live-swell').style.color = 'var(--dim)';
     } else {
-      document.getElementById('live-swell').textContent = swell.heightM.toFixed(1) + ' m · ' + compassDir(swell.dirDeg);
+      document.getElementById('live-swell').innerHTML = swell.heightM.toFixed(1) + ' m · ' + animatedCompassDir(swell.dirDeg, swell.heightM / 2.5);
       document.getElementById('live-swell').style.color = 'var(--txt)';
     }
   } catch(err) {
@@ -3060,6 +3080,23 @@ const COMPASS_ARROWS = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
 function compassDir(deg) {
   const arrow = COMPASS_ARROWS[Math.round(deg / 45) % 8];
   return `${arrow} ${deg.toFixed(0)}°`;
+}
+
+// Animated version of compassDir() for Wind/Swell/Current in Live Readings/
+// the click popup — same solid dart shape as the forecast grid's dirArrow(),
+// rotated to the bearing and pulsed via the flowPulse keyframes above.
+// speedNorm is 0 (calm) to 1+ (strong) already clamped by the caller against
+// a sensible max for that reading type; duration is inverted from it so a
+// stronger reading pulses visibly faster, not just a bigger arrow.
+function animatedDirArrow(deg, speedNorm, size) {
+  const dur = (2.2 - Math.min(1, Math.max(0, speedNorm)) * 1.6).toFixed(2);
+  return `<span style="display:inline-block;vertical-align:middle;--deg:${deg}deg;animation:flowPulse ${dur}s ease-in-out infinite">` +
+    `<svg width="${size}" height="${size}" viewBox="0 0 20 20">` +
+    `<polygon points="10,1 17,19 10,14.5 3,19" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/>` +
+    `</svg></span>`;
+}
+function animatedCompassDir(deg, speedNorm, size = 14) {
+  return `${animatedDirArrow(deg, speedNorm, size)} ${deg.toFixed(0)}°`;
 }
 
 // ── Real wind/swell at a single point (Open-Meteo — free, no key, real CORS,
