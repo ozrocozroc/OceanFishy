@@ -2114,6 +2114,11 @@ function tempColor(c) { return bandColor(c, [12,16,20,24,27,30,33,36]); } // air
 // in one direction, and the same banded palette fits.
 function tideColor(m) { return bandColor(m, [0.3,0.6,0.9,1.2,1.6,2.0,2.5,3.0]); }
 
+// Same banded scale, tuned to ocean current's much smaller natural range —
+// used to color the animated direction arrows in Live Readings (see
+// animatedDirArrow), not a forecast-grid cell background like the others.
+function currentColor(kt) { return bandColor(kt, [0.25,0.5,0.75,1,1.25,1.5,2,2.5]); }
+
 // ── Point forecast panel — Windy-style hourly timeline with a draggable
 // time cursor, replacing the old vertical SVG line-chart layout. ──────────────
 let fcState = null; // {wx, marine, colTimes, colW, labelW, curCol}
@@ -2931,7 +2936,7 @@ async function updateLiveReadings(lat, lng) {
       document.getElementById('live-cur').textContent = 'n/a';
       document.getElementById('live-cur').style.color = 'var(--dim)';
     } else {
-      document.getElementById('live-cur').innerHTML = cur.speedKt.toFixed(2) + ' kt · ' + animatedCompassDir(cur.dirDeg, cur.speedKt / 1.5);
+      document.getElementById('live-cur').innerHTML = cur.speedKt.toFixed(2) + ' kt · ' + animatedCompassDir(cur.dirDeg, cur.speedKt / 1.5, currentColor(cur.speedKt));
       document.getElementById('live-cur').style.color = '#9bb0ff';
       if (curLayer === 'off') {
         document.getElementById('live-note').innerHTML = currentNote(cur.speedKt);
@@ -2960,14 +2965,14 @@ async function updateLiveReadings(lat, lng) {
       document.getElementById('live-wind').textContent = 'n/a';
       document.getElementById('live-wind').style.color = 'var(--dim)';
     } else {
-      document.getElementById('live-wind').innerHTML = Math.round(wind.speedKmh) + ' km/h · ' + animatedCompassDir(wind.dirDeg, wind.speedKmh / 50) + (wind.gustKmh != null ? ' (gust ' + Math.round(wind.gustKmh) + ')' : '');
+      document.getElementById('live-wind').innerHTML = Math.round(wind.speedKmh) + ' km/h · ' + animatedCompassDir(wind.dirDeg, wind.speedKmh / 50, windColor(wind.speedKmh)) + (wind.gustKmh != null ? ' (gust ' + Math.round(wind.gustKmh) + ')' : '');
       document.getElementById('live-wind').style.color = '#8fe3b0';
     }
     if (swell === null) {
       document.getElementById('live-swell').textContent = 'n/a';
       document.getElementById('live-swell').style.color = 'var(--dim)';
     } else {
-      document.getElementById('live-swell').innerHTML = swell.heightM.toFixed(1) + ' m · ' + animatedCompassDir(swell.dirDeg, swell.heightM / 2.5);
+      document.getElementById('live-swell').innerHTML = swell.heightM.toFixed(1) + ' m · ' + animatedCompassDir(swell.dirDeg, swell.heightM / 2.5, waveColor(swell.heightM));
       document.getElementById('live-swell').style.color = '#3aa0d8';
     }
   } catch(err) {
@@ -3098,16 +3103,26 @@ function compassDir(deg) {
 // rotated to the bearing and pulsed via the flowPulse keyframes above.
 // speedNorm is 0 (calm) to 1+ (strong) already clamped by the caller against
 // a sensible max for that reading type; duration is inverted from it so a
-// stronger reading pulses visibly faster, not just a bigger arrow.
-function animatedDirArrow(deg, speedNorm, size) {
+// stronger reading pulses visibly faster, not just a bigger arrow. fill is
+// an intensity color (windColor/waveColor/currentColor — the same banded
+// palette the forecast grid uses for cell backgrounds) rather than the
+// metric's own fixed color: the surrounding text is already tinted to the
+// metric, so a second use of that same color on the arrow would blend in
+// and add nothing — an independent intensity cue reinforces what the pulse
+// speed already conveys, for anyone who doesn't easily read animation speed.
+// Those band functions return 'transparent' for calm/near-zero values (fine
+// for a background wash, invisible for an arrow fill), so that's floored to
+// the palette's own calm-green instead.
+function animatedDirArrow(deg, speedNorm, size, fill) {
   const dur = (2.2 - Math.min(1, Math.max(0, speedNorm)) * 1.6).toFixed(2);
+  const col = (!fill || fill === 'transparent') ? '#4d7a3d' : fill;
   return `<span style="display:inline-block;vertical-align:middle;--deg:${deg}deg;animation:flowPulse ${dur}s ease-in-out infinite">` +
     `<svg width="${size}" height="${size}" viewBox="0 0 20 20">` +
-    `<polygon points="10,1 17,19 10,14.5 3,19" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/>` +
+    `<polygon points="10,1 17,19 10,14.5 3,19" fill="${col}" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/>` +
     `</svg></span>`;
 }
-function animatedCompassDir(deg, speedNorm, size = 14) {
-  return `${animatedDirArrow(deg, speedNorm, size)} ${deg.toFixed(0)}°`;
+function animatedCompassDir(deg, speedNorm, fill, size = 14) {
+  return `${animatedDirArrow(deg, speedNorm, size, fill)} ${deg.toFixed(0)}°`;
 }
 
 // ── Real wind/swell at a single point (Open-Meteo — free, no key, real CORS,
