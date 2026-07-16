@@ -41,7 +41,8 @@ When a selected model is missing a field, the app fires a small **extra fetch to
 
 - **Forecast panel** (day headers, hour labels, cursor tag, tide High/Low times) — shown in the **viewer's local timezone**, via plain `Date` getters (`getHours()`, `getDay()`, etc.), not `getUTC*()`. Day-grouping for the header row also buckets by local calendar day (`localDayKey` helper), not UTC date — an hour that's technically "tomorrow" in UTC but still today locally must show under today's header.
 - **Date chips / satellite layer dates** — the chip **label** (weekday, day/month) is local time, but the **value actually requested from ERDDAP** stays UTC always (`iso`, `curDate`, the `setUTCDate` stepping). Never let these drift — a chip must always request the date its label implies.
-- Anywhere a bare UTC date/time is shown to the user without conversion (Live Readings coordinate line, currents lag status message), it's explicitly suffixed `(UTC)` so it's never mistaken for "today."
+- **Live Readings coordinate line** — same treatment as the date chips: the label converts `curDate` to the viewer's local calendar day (local `Date` getters on a UTC-midnight anchor), with the real UTC date kept in a `title` tooltip (`Dataset date (UTC): …`) for anyone cross-checking against the active chip. Changed from an earlier version that printed the bare UTC date suffixed `(UTC)` directly in the line — per user request, to match how the chips/forecast panel already read.
+- Anywhere else a bare UTC date/time is still shown without conversion (e.g. the currents lag status message), it's explicitly suffixed `(UTC)` so it's never mistaken for "today."
 - `todayStr()` is only a placeholder shown briefly before `useLatestAvailableDate()` resolves (or if that fetch fails offline) — it subtracts via absolute milliseconds (`Date.now() - 2*86400000`), not local `setDate()`, so it's timezone-independent.
 
 ## UI/layout gotchas already fixed here (don't reintroduce)

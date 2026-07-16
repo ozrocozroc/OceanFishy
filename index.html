@@ -2826,10 +2826,23 @@ async function updateLiveReadings(lat, lng) {
   const ms = Math.abs(lng).toFixed(3)+(lng>0?'°E':'°W');
 
   // Update coordinate display. curDate is the satellite dataset's own UTC
-  // calendar date (see useLatestAvailableDate) — labeled explicitly so it's
-  // never read as "today" in the viewer's own timezone, the same real gap
-  // that prompted labeling the date chips and forecast panel times earlier.
-  document.getElementById('live-coord').textContent = ls + ' · ' + ms + ' · ' + curDate + ' (UTC)';
+  // calendar date (see useLatestAvailableDate) — the actual value requested
+  // from ERDDAP always stays that UTC day (unchanged), but the LABEL shown
+  // here now converts to the viewer's local calendar day, same treatment as
+  // buildDateChips()'s weekday/day-month label and the Forecast panel's
+  // hour/day headers — read via local Date getters on a UTC-midnight
+  // anchor, so a timezone where that UTC day falls on a different local
+  // date sees the date they'd expect from their own calendar. The dataset's
+  // real UTC date is kept in the title tooltip (matching the chips' own
+  // "Dataset date (UTC): …" tooltip) rather than dropped, since it still
+  // matters for anyone cross-checking against the chip that's active.
+  const liveCoordEl = document.getElementById('live-coord');
+  const curDateLocal = new Date(curDate + 'T00:00:00Z');
+  const dowShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const monShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const localDateLabel = dowShort[curDateLocal.getDay()] + ' ' + curDateLocal.getDate() + ' ' + monShort[curDateLocal.getMonth()];
+  liveCoordEl.textContent = ls + ' · ' + ms + ' · ' + localDateLabel;
+  liveCoordEl.title = 'Dataset date (UTC): ' + curDate;
   document.getElementById('live-note').textContent = '';
 
   // Populate simulated values for SST / CHL immediately (altimetry is fetched
