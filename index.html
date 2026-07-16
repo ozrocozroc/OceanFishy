@@ -2595,6 +2595,16 @@ function buildDateChips(anchorIso, stepDays) {
     btn.onclick = () => selectDateChip(btn, iso);
     wrap.appendChild(btn);
   }
+
+  // Chips build oldest→newest left-to-right, so "Latest" (selected by
+  // default) is always the rightmost one — on a narrow mobile #datebar
+  // (overflow-x:auto), that left the default view scrolled to show the
+  // OLDEST chips, with the actually-selected "Latest" chip scrolled off
+  // the right edge, invisible despite being the active state. Scroll the
+  // real scroll container (#datebar — #date-chips itself has no overflow)
+  // all the way right so Latest starts in view; an oversized value clamps
+  // to the real max automatically rather than needing scrollWidth math.
+  document.getElementById('datebar').scrollLeft = 999999;
 }
 
 function selectDateChip(btn, iso) {
