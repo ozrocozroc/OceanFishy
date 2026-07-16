@@ -2822,9 +2822,9 @@ async function updateLiveReadings(lat, lng) {
   const sst = simVal(lat,lng,'sst');
   const chl = simVal(lat,lng,'chl');
   document.getElementById('live-sst').textContent = sst.val + ' °C';
-  document.getElementById('live-sst').style.color = 'var(--txt)';
+  document.getElementById('live-sst').style.color = 'var(--sst)';
   document.getElementById('live-chl').textContent = chl.val + ' mg/m³';
-  document.getElementById('live-chl').style.color = 'var(--txt)';
+  document.getElementById('live-chl').style.color = 'var(--chl)';
   document.getElementById('live-alt').textContent = '…';
   document.getElementById('live-alt').style.color = 'var(--acc)';
 
@@ -2847,7 +2847,7 @@ async function updateLiveReadings(lat, lng) {
       const cm = slaM * 100;
       const cmStr = (cm>=0?'+':'')+cm.toFixed(1);
       document.getElementById('live-alt').textContent = cmStr + ' cm';
-      document.getElementById('live-alt').style.color = 'var(--txt)';
+      document.getElementById('live-alt').style.color = 'var(--alt)';
       if (curLayer === 'alt') {
         document.getElementById('live-note').innerHTML = slaNote(cm);
       }
@@ -2871,7 +2871,7 @@ async function updateLiveReadings(lat, lng) {
     } else {
       const vis = 4.6 / Math.pow(chlReal, 0.44);
       document.getElementById('live-vis').textContent = '~' + vis.toFixed(0) + ' m (est.)';
-      document.getElementById('live-vis').style.color = 'var(--txt)';
+      document.getElementById('live-vis').style.color = '#4fd0e8';
       if (curLayer === 'off') {
         document.getElementById('live-note').innerHTML = visibilityNote(vis);
       }
@@ -2893,7 +2893,7 @@ async function updateLiveReadings(lat, lng) {
     } else {
       const depth = Math.abs(elev);
       document.getElementById('live-depth').textContent = depth.toFixed(0) + ' m';
-      document.getElementById('live-depth').style.color = 'var(--txt)';
+      document.getElementById('live-depth').style.color = '#3a7ca5';
       const note = depth<10  ? '🏖 Very shallow — inshore reef, ideal spearfishing' :
                    depth<30  ? '🐠 Shallow reef (10–30m) — prime spearfishing depth' :
                    depth<50  ? '🐡 Mid reef (30–50m) — deeper reef, Kingfish, Snapper' :
@@ -2921,7 +2921,7 @@ async function updateLiveReadings(lat, lng) {
       document.getElementById('live-cur').style.color = 'var(--dim)';
     } else {
       document.getElementById('live-cur').innerHTML = cur.speedKt.toFixed(2) + ' kt · ' + animatedCompassDir(cur.dirDeg, cur.speedKt / 1.5);
-      document.getElementById('live-cur').style.color = 'var(--txt)';
+      document.getElementById('live-cur').style.color = '#9bb0ff';
       if (curLayer === 'off') {
         document.getElementById('live-note').innerHTML = currentNote(cur.speedKt);
       }
@@ -2950,14 +2950,14 @@ async function updateLiveReadings(lat, lng) {
       document.getElementById('live-wind').style.color = 'var(--dim)';
     } else {
       document.getElementById('live-wind').innerHTML = Math.round(wind.speedKmh) + ' km/h · ' + animatedCompassDir(wind.dirDeg, wind.speedKmh / 50) + (wind.gustKmh != null ? ' (gust ' + Math.round(wind.gustKmh) + ')' : '');
-      document.getElementById('live-wind').style.color = 'var(--txt)';
+      document.getElementById('live-wind').style.color = '#8fe3b0';
     }
     if (swell === null) {
       document.getElementById('live-swell').textContent = 'n/a';
       document.getElementById('live-swell').style.color = 'var(--dim)';
     } else {
       document.getElementById('live-swell').innerHTML = swell.heightM.toFixed(1) + ' m · ' + animatedCompassDir(swell.dirDeg, swell.heightM / 2.5);
-      document.getElementById('live-swell').style.color = 'var(--txt)';
+      document.getElementById('live-swell').style.color = '#3aa0d8';
     }
   } catch(err) {
     document.getElementById('live-wind').textContent = 'n/a';
