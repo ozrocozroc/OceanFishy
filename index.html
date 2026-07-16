@@ -1609,18 +1609,19 @@ function hotspotIcon(rank) {
 
 // Easter egg — the Hotspots tool is powerful but a lot of screen-reading for
 // a casual user (5 live data fetches, a scoring breakdown per pin), so it's
-// hidden behind a triple-click on the logo rather than sitting in the Tools
-// bar by default. A genuine on/off switch: triple-click again while unlocked
-// to re-hide it — no dev-tools/localStorage-clearing required. State
-// persists across reloads either way (same localStorage pattern as
-// everything else in Known Marks/forecast settings).
+// hidden behind a 5-click on the logo rather than sitting in the Tools bar
+// by default. A genuine on/off switch: 5-click again while unlocked to
+// re-hide it — no dev-tools/localStorage-clearing required. State persists
+// across reloads either way (same localStorage pattern as everything else
+// in Known Marks/forecast settings).
 const HOTSPOT_UNLOCK_KEY = 'oceanfishy_hotspots_unlocked';
+const LOGO_UNLOCK_CLICKS = 5;
 let logoClickCount = 0, logoClickTimer = null;
 function handleLogoClick() {
   logoClickCount++;
   clearTimeout(logoClickTimer);
   logoClickTimer = setTimeout(() => { logoClickCount = 0; }, 700);
-  if (logoClickCount < 3) return;
+  if (logoClickCount < LOGO_UNLOCK_CLICKS) return;
   logoClickCount = 0;
 
   const nowUnlocked = !localStorage.getItem(HOTSPOT_UNLOCK_KEY);
