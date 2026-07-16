@@ -414,7 +414,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <button class="lb chl"    id="b-chl" onclick="setLayer('chl')" title="NOAA VIIRS weekly composite — ~2-3 week lag"><span class="bdot chl"></span>VIIRS <span style="font-size:9px;color:var(--dim)">3wk</span></button>
   <button class="lb chl"    id="b-chlOlci" onclick="setLayer('chlOlci')" title="Copernicus Sentinel-3 OLCI daily — ~2-3 day lag"><span class="bdot chl"></span>OLCI <span style="font-size:9px;color:var(--dim)">2-3d</span></button>
   <button class="lb alt"    id="b-alt" onclick="setLayer('alt')"><span class="bdot alt"></span>Altimetry</button>
-  <button class="lb depth"  id="b-depth" onclick="setLayer('depth')"><span class="bdot depth"></span>Depth</button>
+  <button class="lb depth"  id="b-depth" onclick="setLayer('depth')"><span class="bdot depth"></span>Bathymetry</button>
   <!-- Mobile-only alternative to the 5 buttons above (hidden on mobile via
        @media, see CSS) — a dropdown needs an explicit "Off" option since
        there's no native "click the same option again to deselect" gesture
@@ -425,7 +425,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
     <option value="chl">Chl VIIRS (~3wk)</option>
     <option value="chlOlci">Chl OLCI (2-3d)</option>
     <option value="alt">Altimetry</option>
-    <option value="depth">Depth</option>
+    <option value="depth">Bathymetry</option>
   </select>
   <div class="sep"></div>
   <div style="display:flex;align-items:center;gap:6px">
@@ -511,7 +511,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
         <div style="text-align:right"><div class="sv" id="live-chl" style="color:var(--dim)">—</div></div>
       </div>
       <div class="sr">
-        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#4fd0e8;display:inline-block;margin-right:5px"></span>Visibility <span style="font-size:9px;color:var(--dim)">(live)</span></span>
+        <span class="sn"><span style="width:8px;height:8px;border-radius:50%;background:#4fd0e8;display:inline-block;margin-right:5px"></span>Vis <span style="font-size:9px;color:var(--dim)">(live)</span></span>
         <div style="text-align:right"><div class="sv" id="live-vis" style="color:var(--dim)">—</div></div>
       </div>
       <div class="sr">
@@ -752,7 +752,7 @@ const LAYERS = {
     isStatic: false,
   },
   depth: {
-    label:'Water depth (bathymetry)', unit:'m', name:'Depth',
+    label:'Water depth (bathymetry)', unit:'m', name:'Bathymetry',
     grad:'linear-gradient(to right,#e8f8ff,#a8dff0,#4fb3d9,#1a6fa8,#0d3b6e,#060f1e)',
     min:'0m', mid:'1000m', max:'6000m+',
     // SRTM15+ (15 arc-sec, ~270m) replaces ETOPO1 (1 arc-min, ~1.8km) — ~7x
@@ -2711,7 +2711,7 @@ function syncLivePopup() {
     `<b>Live readings</b><br>` +
     `${get('SST', 'live-sst')}<br>` +
     `${get('Chl-a', 'live-chl')}<br>` +
-    `${get('Visibility', 'live-vis')}<br>` +
+    `${get('Vis', 'live-vis')}<br>` +
     `${get('SLA', 'live-alt')}<br>` +
     `${get('Depth', 'live-depth')}<br>` +
     `${get('Current', 'live-cur')}<br>` +
