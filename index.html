@@ -426,7 +426,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <span class="lbl">Tools</span>
   <button class="lb ruler" id="b-forecast" onclick="toggleForecastMode()" title="Click a point on the map for a 16-day forecast: wind, waves, swell, tide, pressure, moon phase">📈 Forecast</button>
   <button class="lb ruler" id="b-ruler" onclick="toggleRuler()">📏 Ruler</button>
-  <button class="lb ruler" id="b-locate" onclick="locateMe()" title="Show your current GPS location on the map">📍 Locate me</button>
+  <button class="lb ruler" id="b-locate" onclick="locateMe()" title="Show your current GPS location on the map">⌖</button>
   <button class="lb" id="b-ruler-clear" onclick="clearRuler()" style="display:none">✕ Clear</button>
   <!-- Mobile-only sidebar drawer toggle. Used to float over the map (see
        #sb-toggle CSS) which, being a descendant of #map/the Leaflet
@@ -2741,17 +2741,26 @@ function locateMe() {
   );
 }
 
-map.on('click', async e => {
-  if (rulerActive) { addRulerPoint(e.latlng); return; }
+// Pulled out of map.on('click') so a click that lands ON a known-mark pin
+// (see renderMarkers()) can forward here too, at the pin's own exact
+// lat/lng, instead of Leaflet's marker just swallowing the click. Markers
+// sit on top of the map and are (deliberately) still hover-interactive for
+// their tooltip, but before this fix that made them a dead zone for
+// whichever tool was active (ruler, forecast, live-reading click) — you
+// couldn't click precisely at a mark's location to measure to/from it or
+// read its exact conditions, which defeats the purpose of a "click for
+// accuracy" tool right where accuracy (an exact, named position) matters most.
+async function handleMapClick(latlng) {
+  if (rulerActive) { addRulerPoint(latlng); return; }
   if (addingMark) {
-    placeAddMarkPreview(e.latlng.lat, e.latlng.lng);
+    placeAddMarkPreview(latlng.lat, latlng.lng);
     if (document.getElementById('mark-form').style.display === 'block') {
       // Form already open for this new mark — just update its coords in
       // place rather than opening a second form.
-      document.getElementById('mf-lat').value = e.latlng.lat.toFixed(4);
-      document.getElementById('mf-lng').value = e.latlng.lng.toFixed(4);
+      document.getElementById('mf-lat').value = latlng.lat.toFixed(4);
+      document.getElementById('mf-lng').value = latlng.lng.toFixed(4);
     } else {
-      openMarkForm(null, e.latlng);
+      openMarkForm(null, latlng);
     }
     return;
   }
@@ -2759,15 +2768,16 @@ map.on('click', async e => {
     // Reuse the same click marker forecast mode used to place its own
     // separate "forecast point" marker here, so a click never leaves two
     // dots on the map (one for the reading, one for the forecast point).
-    placeClickMark(e.latlng.lat, e.latlng.lng);
-    updateLiveReadings(e.latlng.lat, e.latlng.lng);
-    openForecastPanel(e.latlng.lat, e.latlng.lng);
+    placeClickMark(latlng.lat, latlng.lng);
+    updateLiveReadings(latlng.lat, latlng.lng);
+    openForecastPanel(latlng.lat, latlng.lng);
     return; // stays active — click elsewhere to check another point
   }
-  const {lat, lng} = e.latlng;
+  const {lat, lng} = latlng;
   placeClickMark(lat, lng);
   updateLiveReadings(lat, lng);
-});
+}
+map.on('click', e => handleMapClick(e.latlng));
 
 // Populates the Live readings panel (SST/Chl/SLA/Depth) and, for backwards
 // compat, the legacy top readout panel, for a given point. Shared by the
@@ -3305,7 +3315,14 @@ function renderMarkers() {
       }),
       zIndexOffset: selected ? 1000 : 0,
     }).addTo(marksLayerGroup)
-      .bindTooltip(`<b>${icon} ${m.name}</b><br>Depth: ${m.depth}<br>${m.species}`, {direction:'top'});
+      .bindTooltip(`<b>${icon} ${m.name}</b><br>Depth: ${m.depth}<br>${m.species}`, {direction:'top'})
+      // Marker clicks stay interactive for the hover tooltip above, but
+      // Leaflet markers otherwise just swallow a click rather than passing
+      // it to the map underneath — forward it to the exact same handler a
+      // bare map click uses (see handleMapClick), so ruler/forecast/
+      // live-reading clicks work with full accuracy right on a mark instead
+      // of being a dead zone you have to click just next to.
+      .on('click', e => handleMapClick(e.latlng));
     markerLayerById[m.id] = layer;
   });
 }
