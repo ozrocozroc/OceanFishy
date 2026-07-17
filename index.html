@@ -898,20 +898,37 @@ function buildBase(type) {
       {...opts, attribution:'© OpenSeaMap', opacity:0.85}).addTo(map);
 
   } else if (type === 'ocean') {
-    // Esri Ocean basemap — shows bathymetry, perfect for offshore fishing
+    // Esri Ocean basemap — shows bathymetry, perfect for offshore fishing.
+    // Both services' own tile metadata (MapServer?f=json -> tileInfo.lods)
+    // confirm a real max LOD of 16 — same blocky/blurry-past-native-zoom
+    // issue as the WMS data layers (see LAYERS.*.maxNativeZoom), just for a
+    // base map instead of a data overlay. maxZoom:19 above still lets the
+    // MAP zoom in further; this only stops Esri tile requests past what
+    // they actually have and scales up the zoom-16 tile instead.
     baseLayer = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}',
-      {...opts, attribution:'© Esri Ocean'}).addTo(map);
+      {...opts, maxNativeZoom:16, attribution:'© Esri Ocean'}).addTo(map);
     baseLayer2 = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Reference/MapServer/tile/{z}/{y}/{x}',
-      {...opts, attribution:'', opacity:0.9}).addTo(map);
+      {...opts, maxNativeZoom:16, attribution:'', opacity:0.9}).addTo(map);
 
   } else if (type === 'sat') {
+    // World_Imagery's tile grid technically extends to LOD 23, but actual
+    // photographed resolution is only that fine over cities/coastlines —
+    // remote open ocean (this app's main subject) is often only sourced at
+    // a much coarser resolution, so zooming in past it just upsamples a
+    // blurry/smeared low-res tile (reported directly: satellite base
+    // breaks down at high zoom over open water). There's no single correct
+    // cutoff (unlike the Ocean basemap above, this genuinely varies by
+    // location), so 16 is a practical default matched to this app's
+    // ocean-heavy use, not a confirmed service limit like Ocean's.
     baseLayer = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      {...opts, attribution:'© Esri World Imagery'}).addTo(map);
+      {...opts, maxNativeZoom:16, attribution:'© Esri World Imagery'}).addTo(map);
     // World_Imagery is plain photography with no place names — pair it with
     // Esri's reference/labels overlay (the standard "Imagery with Labels" combo).
+    // This one's vector-drawn labels/boundaries, not photography, so it
+    // doesn't have the same native-resolution ceiling — left uncapped.
     baseLayer2 = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
       {...opts, attribution:''}).addTo(map);
