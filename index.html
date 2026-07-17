@@ -1035,6 +1035,18 @@ function loadOceanLayer() {
   if (curLayer === 'depth') {
     wmsOptions.belowmincolor = 'extend';
     wmsOptions.abovemaxcolor = 'transparent';
+    // abovemaxcolor:'transparent' above is silently ignored by this ERDDAP
+    // WMS endpoint (same "rendering params don't apply" quirk documented
+    // for colorscalerange on the other layers) — confirmed directly:
+    // requesting the z layer alone over pure land returned solid opaque
+    // green (24,107,24), not transparency. ERDDAP ships a standard
+    // "LandMask" WMS layer (GSHHS shoreline-derived) specifically for
+    // this — composited after the data layer via a second comma-separated
+    // name, it paints land with a flat neutral gray instead of relying on
+    // the ignored transparency param. Confirmed directly too: same request
+    // with ",LandMask" appended returned solid land as (204,204,204), real
+    // ocean bathymetry colors unaffected.
+    wmsOptions.layers = cfg.layer + ',LandMask';
   } else {
     wmsOptions.time = dateToUse + 'T12:00:00Z';
     wmsOptions.abovemaxcolor = 'extend';
