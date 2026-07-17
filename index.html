@@ -111,8 +111,14 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
    comes later in the DOM, so on a tie it wins the stacking order and visually
    covers the sidebar's bottom edge (this is exactly what the mobile drawer
    rule already avoids, using 940 there too — this was just never matched on
-   desktop). */
-#sb{position:absolute;top:10px;right:10px;bottom:10px;z-index:940;width:234px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+   desktop). Winning the stacking order isn't enough on its own though: #sb's
+   bottom:10px let its box extend down into #src's own 22px-tall strip (10px
+   short of clearing it), so the sidebar's bottom edge visually painted over
+   the last ~12px of the attribution text underneath instead of the two
+   simply sitting side by side. bottom:36px (22px for #src + the same 10px
+   breathing room used everywhere else here) stops #sb's box short of #src
+   entirely, so there's no overlap left for z-index to have to resolve. */
+#sb{position:absolute;top:10px;right:10px;bottom:36px;z-index:940;width:234px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
 #sb .panel{flex-shrink:0}
 /* box-shadow adds depth separation from the sidebar/page background behind
    it — panel, sidebar, and page background are all similar dark navy tones,
