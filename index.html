@@ -750,6 +750,17 @@ const LAYERS = {
     startDate:'2015-01-15',
     note:'NOAA/RADS altimetry (S-3A/B, CryoSat2, Jason-2/3, SARAL) · 0.25° · Daily · 2015–present',
     isStatic: false,
+    // At 0.25° (~25km) native resolution, a 256px WMS tile only covers a
+    // whole native grid cell up to about zoom 9-10 — past that, each tile
+    // requests an area SMALLER than one source cell, and ERDDAP just
+    // returns that one cell's flat color with hard tile-boundary edges
+    // instead of a smooth gradient (confirmed directly: at zoom 12, tile
+    // bbox width was ~0.088°, a third of one SLA cell). Capping
+    // maxNativeZoom stops Leaflet from requesting new tiles past this
+    // point — it instead scales up the zoom-9 tiles (blurry, but a
+    // legitimate low-res image instead of a blocky checkerboard that reads
+    // as broken).
+    maxNativeZoom: 9,
   },
   depth: {
     label:'Water depth (bathymetry)', unit:'m', name:'Bathymetry',
@@ -969,6 +980,7 @@ function loadOceanLayer() {
     zIndex: 200,
     interactive: false,
   };
+  if (cfg.maxNativeZoom) wmsOptions.maxNativeZoom = cfg.maxNativeZoom;
   if (curLayer === 'depth') {
     wmsOptions.belowmincolor = 'extend';
     wmsOptions.abovemaxcolor = 'transparent';
@@ -1625,11 +1637,10 @@ async function updateHotspots(bounds) {
     // all ~144 raw candidates — that'd be 100+ extra Open-Meteo round trips
     // for zones that mostly get thrown away anyway). Reuses the same
     // getRealWind/getRealSwell point-fetches Live Readings already uses.
-    // Thresholds are a starting point, not tuned against real small-boat
-    // advisories — easy to adjust later (per user: "we can change it
-    // later"). View-only per user request: still shown and clickable, just
-    // badged and captioned as a no-go rather than hidden from the map.
-    const EXTREME_WIND_KMH = 54, EXTREME_SWELL_M = 3;
+    // View-only per user request: still shown and clickable, just badged
+    // and captioned as a no-go rather than hidden from the map. Thresholds
+    // tuned per user (lowered from an initial 54km/h/3m).
+    const EXTREME_WIND_KMH = 40, EXTREME_SWELL_M = 2.5;
     const weatherByPick = await Promise.all(picked.map(c => Promise.all([
       getRealWind(c.lat, c.lon).catch(() => null),
       getRealSwell(c.lat, c.lon).catch(() => null),
