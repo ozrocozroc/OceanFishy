@@ -1358,6 +1358,27 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+// Degrees + Decimal Minutes (hddd° mm.mmm') — the format most marine GPS/
+// fish finders (Garmin, Lowrance, Humminbird) and Google Maps' own search
+// box expect when pasting in a coordinate, rather than the plain decimal
+// degrees used internally everywhere else in this file for storage/math.
+// 3 decimal places on minutes is ~1.85m of precision at the equator,
+// matching what those devices themselves typically display. Only used at
+// display time — parseFlexibleCoord (used by the Add Mark form) already
+// independently accepts D M.M input when a user types it back in, so this
+// is a one-way formatter, not part of a round-trip pair that needs to stay
+// in sync with it.
+function toDMM(deg, posHemi, negHemi) {
+  const hemi = deg < 0 ? negHemi : posHemi;
+  const abs = Math.abs(deg);
+  const wholeDeg = Math.floor(abs);
+  const minutes = (abs - wholeDeg) * 60;
+  return `${wholeDeg}°${minutes.toFixed(3)}'${hemi}`;
+}
+function formatCoordDMM(lat, lng) {
+  return `${toDMM(lat, 'N', 'S')} ${toDMM(lng, 'E', 'W')}`;
+}
+
 // Approximate Australian coastline for the hotspot finder's far-offshore
 // exclusion (see MAX_SHORE_DIST_KM below) — decimated from Natural Earth's
 // public-domain 1:50m coastline dataset to ~15km point spacing (935 points,
@@ -1733,7 +1754,7 @@ async function updateHotspots(bounds) {
       L.marker([c.lat, c.lon], {icon: hotspotIcon(i + 1, extreme)}).addTo(hotspotGroup).bindPopup(
         `<b>🎯 Hotspot #${i + 1} — score ${(c.score * 100).toFixed(0)}/100</b>` +
         (extreme ? `<br><b style="color:#ff6b6b">⚠ EXTREME CONDITIONS — no-go right now</b>` : '') + `<br>` +
-        `${Math.abs(c.lat).toFixed(4)}°${c.lat<0?'S':'N'}, ${Math.abs(c.lon).toFixed(4)}°${c.lon<0?'W':'E'} · ${c.shoreDistKm.toFixed(0)}km from shore<br>` +
+        `${formatCoordDMM(c.lat, c.lon)} · ${c.shoreDistKm.toFixed(0)}km from shore<br>` +
         `<span style="font-size:10px;color:var(--dim)">${breakdown}</span><br>` +
         `SST: ${c.temp.toFixed(1)}°C, temp break ${(c.sstGrad).toFixed(2)}°C/cell<br>` +
         `Chl-a: ${c.chlAvailable ? c.chlMgm3.toFixed(2) + ' mg/m³, front strength ' + c.chlGrad.toFixed(2) + ' (log10 scale)/cell' : 'no data (cloud/glint — common near coast)'}<br>` +
@@ -2666,8 +2687,7 @@ async function openForecastPanel(lat, lng) {
   const panel = document.getElementById('forecast-panel');
   panel.style.display = 'flex';
   updateCurrentLegendSize();
-  document.getElementById('fc-coords').textContent =
-    Math.abs(lat).toFixed(3) + (lat<0?'°S':'°N') + ' · ' + Math.abs(lng).toFixed(3) + (lng>0?'°E':'°W');
+  document.getElementById('fc-coords').textContent = formatCoordDMM(lat, lng);
   const modelSel = document.getElementById('fc-model');
   if (modelSel && modelSel.value !== marineWaveModel) modelSel.value = marineWaveModel;
   const weatherModelSel = document.getElementById('fc-weather-model');
@@ -3280,7 +3300,7 @@ function locateMe() {
       if (userLocAccuracy) map.removeLayer(userLocAccuracy);
       userLocAccuracy = L.circle([lat, lng], { radius: accuracy, color: '#2a9fd6', weight: 1, fillColor: '#2a9fd6', fillOpacity: .12, interactive: false }).addTo(map);
       userLocMarker = L.marker([lat, lng], { icon: userLocIcon, keyboard: false }).addTo(map)
-        .bindPopup(`<b>Your location</b><br>${lat.toFixed(4)}, ${lng.toFixed(4)}<br><span style="color:var(--dim);font-size:10px">±${Math.round(accuracy)}m accuracy</span>`, { className: 'of-glass-popup' });
+        .bindPopup(`<b>Your location</b><br>${formatCoordDMM(lat, lng)}<br><span style="color:var(--dim);font-size:10px">±${Math.round(accuracy)}m accuracy</span>`, { className: 'of-glass-popup' });
       map.setView([lat, lng], Math.max(map.getZoom(), 11));
       setStatus('');
     },
@@ -3341,8 +3361,7 @@ map.on('click', e => handleMapClick(e.latlng));
 // read before (or nothing) while the forecast panel shows a different
 // point was confusing/inconsistent.
 async function updateLiveReadings(lat, lng) {
-  const ls = Math.abs(lat).toFixed(3)+(lat<0?'°S':'°N');
-  const ms = Math.abs(lng).toFixed(3)+(lng>0?'°E':'°W');
+  const coordDMM = formatCoordDMM(lat, lng);
 
   // Update coordinate display. curDate is the satellite dataset's own UTC
   // calendar date (see useLatestAvailableDate) — the actual value requested
@@ -3360,7 +3379,7 @@ async function updateLiveReadings(lat, lng) {
   const dowShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const monShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const localDateLabel = dowShort[curDateLocal.getDay()] + ' ' + curDateLocal.getDate() + ' ' + monShort[curDateLocal.getMonth()];
-  liveCoordEl.textContent = ls + ' · ' + ms + ' · ' + localDateLabel;
+  liveCoordEl.textContent = coordDMM + ' · ' + localDateLabel;
   liveCoordEl.title = 'Dataset date (UTC): ' + curDate;
   document.getElementById('live-note').textContent = '';
 
