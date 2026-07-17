@@ -681,6 +681,11 @@ const LAYERS = {
     // Data availability: 2002-06-01 to ~yesterday
     startDate:'2002-06-01',
     note:'NASA MUR SST · 1km · Daily · 2002–present',
+    // Same fix as Altimetry's maxNativeZoom, tuned to this layer's own
+    // ~1km native resolution — past zoom 13 a 256px tile requests less
+    // area than a few native cells, so ERDDAP starts returning flat-color
+    // blocks with hard tile edges instead of a smooth gradient.
+    maxNativeZoom: 13,
   },
   chl: {
     label:'Chlorophyll-a concentration', unit:'mg/m³', name:'Chl-a',
@@ -705,6 +710,9 @@ const LAYERS = {
     isStatic: false,
     // Weekly composite: snap date to nearest Monday (VIIRS weekly runs Mon–Sun)
     snapToWeekly: true,
+    // Same fix as Altimetry/SST — this layer's ~4km native resolution
+    // starts showing flat-block tiles past zoom 11.
+    maxNativeZoom: 11,
   },
   chlOlci: {
     label:'Chlorophyll-a concentration (Sentinel-3 OLCI)', unit:'mg/m³', name:'Chl-a (OLCI)',
@@ -726,6 +734,8 @@ const LAYERS = {
     startDate:'2019-01-01',
     note:'Copernicus S-3A OLCI Chl-a · 4km · Daily · 2019–present',
     isStatic: false,
+    // Same ~4km-resolution fix as the VIIRS Chl layer above.
+    maxNativeZoom: 11,
   },
   alt: {
     label:'Sea level anomaly (altimetry)', unit:'cm', name:'SLA',
@@ -781,6 +791,10 @@ const LAYERS = {
     startDate:null,
     note:'SRTM15+ · 15 arc-sec (~270m) · Static bathymetry · land masked',
     isStatic: true,
+    // Same fix as SST/Chl/Altimetry — even at this layer's much finer
+    // ~270m native resolution, zooming in close enough eventually hits the
+    // same one-tile-smaller-than-one-cell wall.
+    maxNativeZoom: 15,
   },
 };
 
@@ -1927,10 +1941,10 @@ function stopCurrentAnimation() {
 
 async function updateCurrents(dateIso, bounds) {
   const myReqId = ++currentReqId;
-  const latMin = Math.max(bounds.getSouth(), -89.9);
-  const latMax = Math.min(bounds.getNorth(),  89.9);
-  const lonMin = Math.max(bounds.getWest(),  -179.9);
-  const lonMax = Math.min(bounds.getEast(),   179.9);
+  let latMin = Math.max(bounds.getSouth(), -89.9);
+  let latMax = Math.min(bounds.getNorth(),  89.9);
+  let lonMin = Math.max(bounds.getWest(),  -179.9);
+  let lonMax = Math.min(bounds.getEast(),   179.9);
 
   // Finer grid than the old static arrows — the particle field interpolates
   // between points, so more samples = smoother-looking flow. Capped fairly
@@ -1940,6 +1954,30 @@ async function updateCurrents(dateIso, bounds) {
   // wide zoomed-out request) — a coarser grid still interpolates smoothly
   // but responds fast enough to actually load.
   const NATIVE_RES = 0.25, MAX_POINTS_PER_AXIS = 22;
+
+  // Once zoomed in past ~zoom 11-12, the visible bbox shrinks below one
+  // native 0.25° cell, and the "(min):1:(max)" index-stride query snaps to
+  // whichever single native point falls in that tiny range — a 1x1 (or
+  // otherwise under 2x2) grid, which sampleCurrentField's bilinear
+  // interpolation can never sample from (every candidate lat/lng ends up
+  // outside a degenerate latSet[0]===latSet[last] range), so every particle
+  // silently gets null forever and the whole overlay reads as "gone".
+  // Confirmed directly: at zoom 14 the query returned exactly 1 point.
+  // Pad the query bbox up to a floor of 2x NATIVE_RES around the view's own
+  // center so there's always at least a 2x2 grid to interpolate, regardless
+  // of how tight the actual viewport is — this only ever widens what's
+  // fetched, never narrows it, so it doesn't affect the wide-zoom case
+  // above.
+  const MIN_SPAN = NATIVE_RES * 2;
+  if (latMax - latMin < MIN_SPAN) {
+    const c = (latMin + latMax) / 2;
+    latMin = c - MIN_SPAN / 2; latMax = c + MIN_SPAN / 2;
+  }
+  if (lonMax - lonMin < MIN_SPAN) {
+    const c = (lonMin + lonMax) / 2;
+    lonMin = c - MIN_SPAN / 2; lonMax = c + MIN_SPAN / 2;
+  }
+
   const latStride = Math.max(1, Math.ceil((latMax - latMin) / NATIVE_RES / MAX_POINTS_PER_AXIS));
   const lonStride = Math.max(1, Math.ceil((lonMax - lonMin) / NATIVE_RES / MAX_POINTS_PER_AXIS));
 
