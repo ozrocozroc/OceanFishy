@@ -3249,7 +3249,7 @@ function syncLivePopup() {
   const html =
     `<b>Live readings</b><br>` +
     `${get('SST', 'live-sst')}<br>` +
-    `${get('Chl-a', 'live-chl')}<br>` +
+    `${get('Chl-a (est.)', 'live-chl')}<br>` +
     `${get('Vis', 'live-vis')}<br>` +
     `${get('SLA', 'live-alt')}<br>` +
     `${get('Depth', 'live-depth')}<br>` +
@@ -3383,24 +3383,46 @@ async function updateLiveReadings(lat, lng) {
   liveCoordEl.title = 'Dataset date (UTC): ' + curDate;
   document.getElementById('live-note').textContent = '';
 
-  // Populate simulated values for SST / CHL immediately (altimetry is fetched
-  // for real below — a simulated number here could contradict the real color
-  // already on screen, which is exactly the bug this replaced)
-  const sst = simVal(lat,lng,'sst');
+  // Chl-a stays simulated (see getRealChl's comment above) — labeled "(est.)"
+  // so that's visible wherever it's shown, including the click popup (see
+  // syncLivePopup). SST used to be simulated here too and could disagree
+  // with the real color layer/hotspot finder for the same point (reported
+  // directly) — now fetched for real below, same as SLA/Depth/Current.
   const chl = simVal(lat,lng,'chl');
-  document.getElementById('live-sst').textContent = sst.val + ' °C';
-  document.getElementById('live-sst').style.color = 'var(--sst)';
+  document.getElementById('live-sst').textContent = '…';
+  document.getElementById('live-sst').style.color = 'var(--acc)';
   document.getElementById('live-chl').textContent = chl.val + ' mg/m³';
   document.getElementById('live-chl').style.color = 'var(--chl)';
   document.getElementById('live-alt').textContent = '…';
   document.getElementById('live-alt').style.color = 'var(--acc)';
 
-  // Show note for whichever layer is active
-  if (curLayer !== 'off' && curLayer !== 'depth' && curLayer !== 'alt') {
+  // Show note for whichever non-SST/non-real layer is active (SST's note is
+  // set below once the real temperature resolves)
+  if (curLayer !== 'off' && curLayer !== 'depth' && curLayer !== 'alt' && curLayer !== 'sst') {
     const v = simVal(lat,lng,curLayer);
     document.getElementById('live-note').innerHTML = v.note.replace(/\n/g,'<br>');
   }
 
+  syncLivePopup();
+
+  // Fetch real SST async — update when ready (matches the color layer/hotspot
+  // finder, unlike the old simulated value)
+  try {
+    const tempC = await getRealSst(lat, lng);
+    if (tempC === null) {
+      document.getElementById('live-sst').textContent = 'n/a';
+      document.getElementById('live-sst').style.color = 'var(--dim)';
+    } else {
+      document.getElementById('live-sst').textContent = tempC.toFixed(1) + ' °C';
+      document.getElementById('live-sst').style.color = 'var(--sst)';
+      if (curLayer === 'sst') {
+        document.getElementById('live-note').innerHTML = sstNote(tempC);
+      }
+    }
+  } catch(err) {
+    document.getElementById('live-sst').textContent = 'n/a';
+    document.getElementById('live-sst').style.color = 'var(--dim)';
+  }
   syncLivePopup();
 
   // Fetch real altimetry async — update when ready (matches the color overlay,
@@ -3575,8 +3597,32 @@ async function getRealSla(lat, lng) {
   return null;
 }
 
+function sstNote(tempC) {
+  return tempC>26?'🔴 Warm — prime YFT & Marlin water':tempC>21?'🟡 Good offshore temp range':tempC>16?'🔵 Cool — Albacore & SBT territory':'🔵 Cold — Bluefin & deepwater species';
+}
+
 function slaNote(cm) {
   return cm>10?'↑ Warm eddy — concentrate bait & gamefish':cm>0?'→ Slight positive — stable conditions':cm>-10?'→ Slight negative — cooler water':'↓ Cold eddy — deepwater upwelling';
+}
+
+// ── Real SST at a lat/lng point ─────────────────────────────────────────────
+// Same single-point griddap pattern as getRealSla — live-sst used to be
+// simVal-based (a lat/lng-only formula, no real data at all), which is why
+// it could show a completely different number than the real SST color
+// layer or the hotspot finder for the exact same point (reported directly).
+// Same MUR SST dataset the color layer/hotspot finder already use, and
+// keyed to curDate (not "last") so it agrees with whichever date the color
+// layer is currently showing, matching getRealSla's own convention.
+async function getRealSst(lat, lng) {
+  const latR = lat.toFixed(3), lngR = lng.toFixed(3);
+  const target = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41.json?analysed_sst[(${curDate}T12:00:00Z)][(${latR})][(${lngR})]`;
+  const data = await fetchJsonViaCorsProxy(target);
+  const rows = data?.table?.rows;
+  if (rows && rows.length > 0) {
+    const v = rows[0][3];
+    return v == null ? null : (typeof v === 'number' ? v : parseFloat(v));
+  }
+  return null;
 }
 
 // ── Real chlorophyll-a at a lat/lng point (for the Visibility estimate) ────
