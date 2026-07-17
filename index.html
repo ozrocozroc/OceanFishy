@@ -2291,7 +2291,14 @@ function tideColor(m) { return bandColor(m, [0.3,0.6,0.9,1.2,1.6,2.0,2.5,3.0]); 
 // Same banded scale, tuned to ocean current's much smaller natural range —
 // used to color the animated direction arrows in Live Readings (see
 // animatedDirArrow), not a forecast-grid cell background like the others.
-function currentColor(kt) { return bandColor(kt, [0.25,0.5,0.75,1,1.25,1.5,2,2.5]); }
+// Named currentIntensityColor, NOT currentColor — that name was already
+// taken by the particle-animation's continuous speed->color ramp (see
+// CURRENT_COLOR_STOPS above). A same-name function declared later in the
+// same scope silently overwrites the earlier one with no error, which
+// briefly broke the particle animation's strokeStyle (it got a flat
+// 8-band hex color instead of the smooth rgba(...) gradient it expects,
+// dropping the alpha channel too) until this was caught and renamed.
+function currentIntensityColor(kt) { return bandColor(kt, [0.25,0.5,0.75,1,1.25,1.5,2,2.5]); }
 
 // ── Point forecast panel — Windy-style hourly timeline with a draggable
 // time cursor, replacing the old vertical SVG line-chart layout. ──────────────
@@ -3137,7 +3144,7 @@ async function updateLiveReadings(lat, lng) {
       document.getElementById('live-cur').textContent = 'n/a';
       document.getElementById('live-cur').style.color = 'var(--dim)';
     } else {
-      document.getElementById('live-cur').innerHTML = cur.speedKt.toFixed(2) + ' kt · ' + animatedCompassDir(cur.dirDeg, cur.speedKt / 1.5, currentColor(cur.speedKt));
+      document.getElementById('live-cur').innerHTML = cur.speedKt.toFixed(2) + ' kt · ' + animatedCompassDir(cur.dirDeg, cur.speedKt / 1.5, currentIntensityColor(cur.speedKt));
       document.getElementById('live-cur').style.color = '#9bb0ff';
       if (curLayer === 'off') {
         document.getElementById('live-note').innerHTML = currentNote(cur.speedKt);
