@@ -1889,9 +1889,19 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
   // moments ago.
   const FETCH_CACHE_MAX = 12;
   const fetchCache = new Map();
+  // Bathymetry is static (isStatic:true — the same seafloor regardless of
+  // curDate), but SST genuinely changes day to day, so its cache key must
+  // include curDate too — otherwise picking a different date chip and
+  // panning back to an already-cached bounds would silently redraw the
+  // WRONG date's data from cache instead of fetching the newly-selected one.
   function cacheKeyFor(bounds) {
     const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
-    return [sw.lat.toFixed(2), sw.lng.toFixed(2), ne.lat.toFixed(2), ne.lng.toFixed(2)].join(',');
+    const dateComponent = LAYERS[layerKey].isStatic ? '' : curDate;
+    return [dateComponent, sw.lat.toFixed(2), sw.lng.toFixed(2), ne.lat.toFixed(2), ne.lng.toFixed(2)].join(',');
+  }
+  function cacheStore(key, grid) {
+    fetchCache.set(key, grid);
+    if (fetchCache.size > FETCH_CACHE_MAX) fetchCache.delete(fetchCache.keys().next().value);
   }
   async function render() {
     if (curLayer !== layerKey) return;
@@ -1913,8 +1923,7 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
       const grid = await fetchGrid(bounds, maxPts);
       if (myReqId !== reqId || curLayer !== layerKey) return;
       gridCache = grid;
-      fetchCache.set(key, grid);
-      if (fetchCache.size > FETCH_CACHE_MAX) fetchCache.delete(fetchCache.keys().next().value);
+      cacheStore(key, grid);
       draw();
       showSpinner(false); setStatus(''); updateAvailNote(LAYERS[layerKey]);
     } catch (err) {
@@ -1922,6 +1931,22 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
       showSpinner(false);
       setStatus(LAYERS[layerKey].name + ' unavailable right now — the data source didn’t respond in time.');
     }
+  }
+  // Silently warms the cache for a given viewport without touching the
+  // visible canvas/spinner/status — used to prefetch the app's default
+  // starting view in the background (see the prefetch call near map init)
+  // so the FIRST real selection of this layer is instant instead of
+  // waiting on the initial fetch, as long as the user hasn't panned/zoomed
+  // away or changed curDate in the meantime. Failures are swallowed on
+  // purpose — a failed prefetch should never surface as a status message
+  // for a layer the user hasn't even selected yet.
+  async function prefetch(bounds) {
+    const key = cacheKeyFor(bounds);
+    if (fetchCache.has(key)) return;
+    try {
+      const grid = await fetchGrid(bounds, maxPts);
+      cacheStore(key, grid);
+    } catch (err) { /* silent — see comment above */ }
   }
   function remove() {
     if (canvas) { canvas.remove(); canvas = null; ctx = null; }
@@ -1931,7 +1956,7 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
 
   map.on('resize', draw);
   window.addEventListener('resize', draw);
-  return { render, draw, remove, setOpacity, hasCanvas: () => !!canvas };
+  return { render, draw, remove, setOpacity, prefetch, hasCanvas: () => !!canvas };
 }
 
 // Depth (Bathymetry): elevM is the raw srtm15plus z value (negative
@@ -2016,6 +2041,30 @@ const sstRaster = createCanvasRasterLayer('sst', sstRasterColor, 120,
   (bounds, maxPts) => fetchHotspotSstGrid(bounds, maxPts, curDate));
 
 const CANVAS_RASTER_LAYERS = { depth: bathyRaster, sst: sstRaster };
+
+// Warms both raster caches for the app's own default starting view (NSW/
+// Sydney — see the map's own constructor center) in the background, so the
+// FIRST time someone actually selects SST or Bathymetry without having
+// panned/zoomed away first, it's instant instead of waiting on the usual
+// ~1-2.5s fetch. Delayed a few seconds so it doesn't compete with the
+// page's own critical initial loads (base tiles, marks data).
+//
+// SST needs curDate resolved to the dataset's REAL latest date first, not
+// left at the todayStr() guess it starts as — otherwise this would
+// silently cache under the wrong key and never actually get hit once the
+// user picks SST for real (which does its own real-date resolution via
+// useLatestAvailableDate, and the cache key has to match). Reassigning the
+// global curDate here is safe: it's exactly what would happen anyway the
+// moment the user selects any dated layer, just done a little earlier so
+// this prefetch and that later real fetch land on the same cache key.
+setTimeout(async () => {
+  const bounds = map.getBounds();
+  bathyRaster.prefetch(bounds);
+  try {
+    curDate = await fetchLatestAvailableDate('sst', LAYERS.sst);
+  } catch (err) { /* keep the guessed date — prefetch below just won't cache-hit later */ }
+  sstRaster.prefetch(bounds);
+}, 2500);
 
 function hotspotIcon(rank, extreme) {
   const bg = extreme ? '#c62828' : '#eda100';
