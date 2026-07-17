@@ -813,6 +813,13 @@ let oceanOverlay = null;
 let oceanLayerReqId = 0;
 let showContours = false;
 let showDepthContours = false;
+// Selecting Bathymetry auto-enables Depth contours the first time (color
+// gradient + precise isobath lines genuinely read structure better
+// together) — see setLayer(). One-time nudge, not a permanent link:
+// stored in localStorage so it doesn't keep re-forcing contours back on
+// every time Bathymetry is reselected after a user deliberately turns them
+// off, and contours stay independently usable over any other layer too.
+const DEPTH_CONTOURS_AUTO_KEY = 'oceanfishy_depth_contours_auto_shown';
 let showHotspots = false;
 let hotspotReqId = 0;
 let loadTimer    = null;
@@ -2780,6 +2787,10 @@ function setLayer(type) {
   curLayer = type;
   ['sst','chl','chlOlci','alt','depth'].forEach(t => document.getElementById('b-'+t)?.classList.remove('on'));
   document.getElementById('b-'+type)?.classList.add('on');
+  if (type === 'depth' && !showDepthContours && !localStorage.getItem(DEPTH_CONTOURS_AUTO_KEY)) {
+    toggleDepthContours();
+    localStorage.setItem(DEPTH_CONTOURS_AUTO_KEY, '1');
+  }
   // Keep the mobile dropdown's displayed value in sync regardless of which
   // input (button or dropdown) actually changed the layer — if it drifted
   // out of sync, selecting an already-active layer from the dropdown would
