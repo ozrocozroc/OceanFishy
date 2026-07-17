@@ -1814,6 +1814,7 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
   }
   function draw() {
     if (curLayer !== layerKey || !ctx || !gridCache) return;
+    canvas.style.transform = ''; // clear any drag-follow transform (see drag handlers below) — this is a real pixel redraw at the current position
     resize();
     const { latSet, lonSet, grid } = gridCache;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1868,7 +1869,38 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
   }
   function setOpacity(v) { if (canvas) canvas.style.opacity = v; }
 
-  map.on('move', draw);
+  // A real per-pixel draw() takes ~15ms for a typical grid — cheap once,
+  // but 'move' fires on every single mousemove during a drag (far more
+  // often than every 15ms), so calling draw() there (an earlier version of
+  // this did) made dragging visibly janky/stuttery, sometimes reading as
+  // "not working" since the map couldn't keep up with the cursor. Leaflet's
+  // own tile layers avoid this by just translating already-rendered tiles
+  // via CSS during a drag (cheap, GPU-composited) and only fetching/
+  // painting new content once the drag settles — same idea here: follow
+  // the drag with a CSS transform (no pixel work at all), and let the
+  // existing debounced moveend->scheduleOverlayRefresh trigger the real
+  // redraw (draw() inside render(), which also clears the transform) once
+  // panning actually stops.
+  //
+  // map.getPixelOrigin() is NOT a valid delta source for this — it only
+  // updates once the drag/pan actually commits (around moveend), not
+  // continuously while dragging (confirmed directly: it stayed unchanged
+  // through 30 simulated drag steps). Tracking a fixed reference point's
+  // own container-relative position instead — latLngToContainerPoint DOES
+  // reflect the live pane position on every 'move' event, since that's the
+  // whole point of the event — gives the correct live delta.
+  let dragRefLatLng = null, dragRefPoint = null;
+  map.on('dragstart', () => {
+    if (curLayer !== layerKey || !canvas) return;
+    dragRefLatLng = map.getCenter();
+    dragRefPoint = map.latLngToContainerPoint(dragRefLatLng);
+  });
+  map.on('drag', () => {
+    if (curLayer !== layerKey || !canvas || !dragRefLatLng) return;
+    const cur = map.latLngToContainerPoint(dragRefLatLng);
+    canvas.style.transform = `translate(${cur.x - dragRefPoint.x}px,${cur.y - dragRefPoint.y}px)`;
+  });
+  map.on('dragend', () => { dragRefLatLng = null; dragRefPoint = null; });
   map.on('resize', draw);
   window.addEventListener('resize', draw);
   return { render, draw, remove, setOpacity, hasCanvas: () => !!canvas };
