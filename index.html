@@ -914,17 +914,24 @@ function buildBase(type) {
 
   } else if (type === 'sat') {
     // World_Imagery's tile grid technically extends to LOD 23, but actual
-    // photographed resolution is only that fine over cities/coastlines —
-    // remote open ocean (this app's main subject) is often only sourced at
-    // a much coarser resolution, so zooming in past it just upsamples a
-    // blurry/smeared low-res tile (reported directly: satellite base
-    // breaks down at high zoom over open water). There's no single correct
-    // cutoff (unlike the Ocean basemap above, this genuinely varies by
-    // location), so 16 is a practical default matched to this app's
-    // ocean-heavy use, not a confirmed service limit like Ocean's.
+    // photographed resolution over remote open ocean (this app's main
+    // subject) runs out much earlier — and past that point Esri doesn't
+    // just serve a blurry upsample, it serves a flat placeholder color
+    // tile with no real content at all. Confirmed directly by downloading
+    // and analyzing real tiles for a reported-broken offshore point
+    // (-34.841, 151.182): z8-10 are genuine photography (100s-1000s of
+    // distinct colors per 256px tile); z11 falls off a cliff to 71 colors/
+    // 41% one flat color; z14 is 16 colors/47% pure flat rgb(0,0,54) — a
+    // solid-color tile, not photography, which is exactly the "blue
+    // vertical band" artifact reported. A Sydney Harbour tile at the same
+    // z18 has 40,000+ distinct colors (genuine rich detail) — coverage is
+    // real and highly location-dependent, so there's no cutoff that's
+    // correct everywhere, but 10 is what the actual measured cliff for
+    // open ocean calls for, prioritized over preserving max coastal detail
+    // given this app's offshore focus.
     baseLayer = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      {...opts, maxNativeZoom:16, attribution:'© Esri World Imagery'}).addTo(map);
+      {...opts, maxNativeZoom:10, attribution:'© Esri World Imagery'}).addTo(map);
     // World_Imagery is plain photography with no place names — pair it with
     // Esri's reference/labels overlay (the standard "Imagery with Labels" combo).
     // This one's vector-drawn labels/boundaries, not photography, so it
