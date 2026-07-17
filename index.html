@@ -1788,6 +1788,39 @@ async function updateHotspots(bounds) {
 // map's 'move' event, which fires continuously during a drag, so the
 // raster stays visually anchored the whole time instead of freezing in
 // its old screen position until the next real refetch settles.
+// Renders into a real Leaflet pane (map.createPane), NOT a plain element
+// appended to the map container — that was tried first and caused two
+// separate real bugs before landing here:
+//
+// 1. z-index 200 (copied from the WMS tile layer this replaces) put the
+//    canvas BELOW .leaflet-map-pane (z-index 400), which contains the
+//    entire base map — the canvas had correct pixel data the whole time,
+//    just completely hidden underneath it ("nothing renders").
+// 2. Bumping to 410 (above .leaflet-map-pane) then covered markers/popups
+//    instead, because .leaflet-map-pane has its own CSS transform (for
+//    panning) which makes it establish its OWN stacking context — that
+//    traps ALL of Leaflet's built-in panes (markerPane 600, popupPane 700,
+//    etc.) inside it as a single unit. No z-index on an external sibling
+//    can land "between" tiles and markers; it's either below the whole
+//    map-pane or above all of it, markers included.
+//
+// A pane created via map.createPane() lives INSIDE .leaflet-map-pane by
+// default, as a true sibling of tilePane (200)/markerPane (600)/etc. — so
+// its z-index compares against them directly, letting this sit precisely
+// where the old WMS layer did: above tiles, below markers/popups. Living
+// inside that pane also means Leaflet's own pan/zoom transform carries the
+// canvas along for free (drawing in LAYER points, not container points),
+// which is what tile layers get for free too — no manual CSS-transform
+// drag-following hack needed, and adding leaflet-zoom-animated lets it
+// visually scale through a zoom transition (like tiles do) instead of
+// sitting frozen/blank until the next real data refetch completes.
+const RASTER_PANE_NAME = 'canvasRasterPane';
+if (!map.getPane(RASTER_PANE_NAME)) {
+  const pane = map.createPane(RASTER_PANE_NAME);
+  pane.style.zIndex = 350; // above tilePane(200)/overlayPane(400 — wait, see note below)
+  pane.classList.add('leaflet-zoom-animated');
+}
+
 function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
   let canvas = null, ctx = null, reqId = 0, gridCache = null;
 
@@ -1798,22 +1831,7 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
     canvas.style.top = '0';
     canvas.style.left = '0';
     canvas.style.pointerEvents = 'none';
-    // 200 was the z-index the WMS tile layer used for this same "color
-    // layer" role — but that number only meant anything WITHIN Leaflet's
-    // own tilePane (siblings of the base tiles inside .leaflet-map-pane).
-    // This canvas is appended directly to the map container instead (a
-    // SIBLING of .leaflet-map-pane itself, not something inside it), and
-    // .leaflet-map-pane has its own z-index of 400 — so at 200 this canvas
-    // was rendering entirely BELOW the whole base map, real pixel data
-    // drawn into it and all, just completely hidden underneath. This is
-    // the actual root cause of "nothing renders" — confirmed directly via
-    // elementFromPoint at the canvas's own center returning the map
-    // container, not the canvas. 410 sits above .leaflet-map-pane's 400,
-    // still below the currents canvas at 450 (so particles stay visible on
-    // top if both are on) and well below Leaflet's marker panes (600+) so
-    // pins stay clickable.
-    canvas.style.zIndex = 410;
-    map.getContainer().appendChild(canvas);
+    map.getPane(RASTER_PANE_NAME).appendChild(canvas);
     ctx = canvas.getContext('2d');
   }
   function resize() {
@@ -1822,10 +1840,15 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
     canvas.width = size.x;
     canvas.height = size.y;
   }
+  // Positions the canvas (and the coordinate space its quads are drawn in)
+  // to the current viewport's top-left, in LAYER points — the pane itself
+  // is what Leaflet translates during pan/zoom, so the canvas only needs
+  // repositioning here (on a real redraw), never on every drag tick.
   function draw() {
     if (curLayer !== layerKey || !ctx || !gridCache) return;
-    canvas.style.transform = ''; // clear any drag-follow transform (see drag handlers below) — this is a real pixel redraw at the current position
     resize();
+    const origin = map.containerPointToLayerPoint([0, 0]);
+    L.DomUtil.setPosition(canvas, origin);
     const { latSet, lonSet, grid } = gridCache;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (latSet.length < 2 || lonSet.length < 2) return;
@@ -1840,16 +1863,16 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
         // fills otherwise leave as thin seams between them.
         const latLo = latC - latStep * 0.55, latHi = latC + latStep * 0.55;
         const lonLo = lonC - lonStep * 0.55, lonHi = lonC + lonStep * 0.55;
-        const p1 = map.latLngToContainerPoint([latHi, lonLo]);
-        const p2 = map.latLngToContainerPoint([latHi, lonHi]);
-        const p3 = map.latLngToContainerPoint([latLo, lonHi]);
-        const p4 = map.latLngToContainerPoint([latLo, lonLo]);
+        const p1 = map.latLngToLayerPoint([latHi, lonLo]);
+        const p2 = map.latLngToLayerPoint([latHi, lonHi]);
+        const p3 = map.latLngToLayerPoint([latLo, lonHi]);
+        const p4 = map.latLngToLayerPoint([latLo, lonLo]);
         ctx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
         ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.lineTo(p3.x, p3.y);
-        ctx.lineTo(p4.x, p4.y);
+        ctx.moveTo(p1.x - origin.x, p1.y - origin.y);
+        ctx.lineTo(p2.x - origin.x, p2.y - origin.y);
+        ctx.lineTo(p3.x - origin.x, p3.y - origin.y);
+        ctx.lineTo(p4.x - origin.x, p4.y - origin.y);
         ctx.closePath();
         ctx.fill();
       }
@@ -1879,38 +1902,6 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
   }
   function setOpacity(v) { if (canvas) canvas.style.opacity = v; }
 
-  // A real per-pixel draw() takes ~15ms for a typical grid — cheap once,
-  // but 'move' fires on every single mousemove during a drag (far more
-  // often than every 15ms), so calling draw() there (an earlier version of
-  // this did) made dragging visibly janky/stuttery, sometimes reading as
-  // "not working" since the map couldn't keep up with the cursor. Leaflet's
-  // own tile layers avoid this by just translating already-rendered tiles
-  // via CSS during a drag (cheap, GPU-composited) and only fetching/
-  // painting new content once the drag settles — same idea here: follow
-  // the drag with a CSS transform (no pixel work at all), and let the
-  // existing debounced moveend->scheduleOverlayRefresh trigger the real
-  // redraw (draw() inside render(), which also clears the transform) once
-  // panning actually stops.
-  //
-  // map.getPixelOrigin() is NOT a valid delta source for this — it only
-  // updates once the drag/pan actually commits (around moveend), not
-  // continuously while dragging (confirmed directly: it stayed unchanged
-  // through 30 simulated drag steps). Tracking a fixed reference point's
-  // own container-relative position instead — latLngToContainerPoint DOES
-  // reflect the live pane position on every 'move' event, since that's the
-  // whole point of the event — gives the correct live delta.
-  let dragRefLatLng = null, dragRefPoint = null;
-  map.on('dragstart', () => {
-    if (curLayer !== layerKey || !canvas) return;
-    dragRefLatLng = map.getCenter();
-    dragRefPoint = map.latLngToContainerPoint(dragRefLatLng);
-  });
-  map.on('drag', () => {
-    if (curLayer !== layerKey || !canvas || !dragRefLatLng) return;
-    const cur = map.latLngToContainerPoint(dragRefLatLng);
-    canvas.style.transform = `translate(${cur.x - dragRefPoint.x}px,${cur.y - dragRefPoint.y}px)`;
-  });
-  map.on('dragend', () => { dragRefLatLng = null; dragRefPoint = null; });
   map.on('resize', draw);
   window.addEventListener('resize', draw);
   return { render, draw, remove, setOpacity, hasCanvas: () => !!canvas };
