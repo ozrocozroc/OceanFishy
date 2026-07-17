@@ -1878,16 +1878,43 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
       }
     }
   }
+  // Every pan/zoom produces a slightly different viewport, hence a
+  // different griddap request URL every time — unlike WMS tiles (small,
+  // fixed-URL, parallel-fetchable, and reused instantly from the browser's
+  // own HTTP cache on a revisit), this never gets a free cache hit from
+  // the browser. Keeping our own small cache, keyed by bounds rounded to
+  // ~1km, means the extremely common "zoom in then back out" (or
+  // vice versa) pattern redraws instantly from memory instead of repeating
+  // a ~1-2.5s network round trip for a view that was already fetched
+  // moments ago.
+  const FETCH_CACHE_MAX = 12;
+  const fetchCache = new Map();
+  function cacheKeyFor(bounds) {
+    const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+    return [sw.lat.toFixed(2), sw.lng.toFixed(2), ne.lat.toFixed(2), ne.lng.toFixed(2)].join(',');
+  }
   async function render() {
     if (curLayer !== layerKey) return;
     const myReqId = ++reqId;
     ensure();
     canvas.style.opacity = curOpacity;
+    const bounds = map.getBounds();
+    const key = cacheKeyFor(bounds);
+    if (fetchCache.has(key)) {
+      gridCache = fetchCache.get(key);
+      fetchCache.delete(key); // re-insert to mark as most-recently-used
+      fetchCache.set(key, gridCache);
+      draw();
+      setStatus(''); updateAvailNote(LAYERS[layerKey]);
+      return;
+    }
     showSpinner(true, 'Loading ' + LAYERS[layerKey].name + '…');
     try {
-      const grid = await fetchGrid(map.getBounds(), maxPts);
+      const grid = await fetchGrid(bounds, maxPts);
       if (myReqId !== reqId || curLayer !== layerKey) return;
       gridCache = grid;
+      fetchCache.set(key, grid);
+      if (fetchCache.size > FETCH_CACHE_MAX) fetchCache.delete(fetchCache.keys().next().value);
       draw();
       showSpinner(false); setStatus(''); updateAvailNote(LAYERS[layerKey]);
     } catch (err) {
