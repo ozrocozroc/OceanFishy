@@ -4205,13 +4205,22 @@ function importMarks(file) {
 function scheduleOverlayRefresh() {
   if (!showContours && !showDepthContours && !showCurrents && !showHotspots && !CANVAS_RASTER_LAYERS[curLayer]) return;
   clearTimeout(overlayRefreshTimer);
+  // moveend already only fires once a pan/zoom has actually settled (not
+  // continuously), so this debounce is really just insurance against a
+  // rapid flurry of small individual moves each queuing their own fetch.
+  // 600ms of that on top of an already-~1-2.5s real griddap fetch (network/
+  // CORS-proxy latency, not something a smaller grid meaningfully helps —
+  // confirmed directly: a 40-point grid still took ~1.3s) added up to a
+  // genuinely sluggish-feeling 2-3s zoom response. 250ms still coalesces
+  // genuinely rapid events without adding much on top of a single discrete
+  // zoom step.
   overlayRefreshTimer = setTimeout(() => {
     if (showContours) updateContours(curDate, map.getBounds());
     if (showDepthContours) updateDepthContours(map.getBounds());
     if (showCurrents) updateCurrents(curDate, map.getBounds());
     if (showHotspots) updateHotspots(map.getBounds());
     if (CANVAS_RASTER_LAYERS[curLayer]) CANVAS_RASTER_LAYERS[curLayer].render();
-  }, 600);
+  }, 250);
 }
 map.on('moveend', function() {
   // Don't refresh during flyTo animation — wait until movement actually stops
