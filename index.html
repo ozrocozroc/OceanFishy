@@ -780,8 +780,13 @@ const LAYERS = {
   },
   depth: {
     label:'Water depth (bathymetry)', unit:'m', name:'Bathymetry',
-    grad:'linear-gradient(to right,#e8f8ff,#a8dff0,#4fb3d9,#1a6fa8,#0d3b6e,#060f1e)',
-    min:'0m', mid:'1000m', max:'6000m+',
+    // Matches BATHY_RASTER_STOPS (see renderBathyRaster) — most of the
+    // gradient spent on the 0-200m shelf range where real structure is,
+    // everything past that compressed, rather than a plain linear scale
+    // that'd make the shelf a barely-distinguishable sliver like the old
+    // WMS layer did.
+    grad:'linear-gradient(to right,rgb(232,248,255) 0%,rgb(194,236,250) 8%,rgb(150,220,242) 15%,rgb(107,201,232) 22%,rgb(79,179,217) 30%,rgb(58,148,196) 38%,rgb(44,120,171) 46%,rgb(31,95,143) 54%,rgb(24,74,114) 62%,rgb(18,58,92) 70%,rgb(13,44,70) 78%,rgb(9,32,50) 85%,rgb(6,22,34) 91%,rgb(3,13,20) 96%,rgb(1,6,10) 100%)',
+    min:'0m', mid:'200m (shelf)', max:'8000m+',
     // SRTM15+ (15 arc-sec, ~270m) replaces ETOPO1 (1 arc-min, ~1.8km) — ~7x
     // finer. Confirmed directly against real inshore spots: ETOPO1 read
     // Bare Island (La Perouse, a real ~5-18m wall dive) as +1m "land", while
@@ -791,16 +796,12 @@ const LAYERS = {
     // waterline SRTM15+ can still misread a real dive spot as land (e.g.
     // Gordons Bay), so treat inshore readings as "roughly this deep,
     // probably" not survey-grade.
-    url:'https://coastwatch.pfeg.noaa.gov/erddap/wms/srtm15plus/request',
-    layer:'srtm15plus:z',
-    crange:'-6000,0', palette:'Ocean',
+    // No url/layer/crange/palette/maxNativeZoom here anymore — this layer
+    // is rendered as a client-side canvas raster (see renderBathyRaster),
+    // not a WMS tile layer, so none of the WMS-specific config applies.
     startDate:null,
     note:'SRTM15+ · 15 arc-sec (~270m) · Static bathymetry · land masked',
     isStatic: true,
-    // Same fix as SST/Chl/Altimetry — even at this layer's much finer
-    // ~270m native resolution, zooming in close enough eventually hits the
-    // same one-tile-smaller-than-one-cell wall.
-    maxNativeZoom: 15,
   },
 };
 
@@ -1003,7 +1004,19 @@ function loadOceanLayer() {
     stopCurrentAnimation();
   }
 
-  if (curLayer === 'off') { removeOverlay(); showSpinner(false); return; }
+  if (curLayer === 'off') { removeOverlay(); removeBathyCanvas(); showSpinner(false); return; }
+
+  // Bathymetry is a client-side canvas raster (see renderBathyRaster), not
+  // a WMS tile layer at all — the WMS endpoint's fixed, unoverridable color
+  // scale is exactly what made this layer look like flat blue everywhere
+  // (see the comment above BATHY_RASTER_STOPS). Skip the WMS setup below
+  // entirely for it.
+  if (curLayer === 'depth') {
+    removeOverlay();
+    renderBathyRaster();
+    return;
+  }
+  removeBathyCanvas();
 
   const cfg = LAYERS[curLayer];
 
@@ -1032,26 +1045,9 @@ function loadOceanLayer() {
     interactive: false,
   };
   if (cfg.maxNativeZoom) wmsOptions.maxNativeZoom = cfg.maxNativeZoom;
-  if (curLayer === 'depth') {
-    wmsOptions.belowmincolor = 'extend';
-    wmsOptions.abovemaxcolor = 'transparent';
-    // abovemaxcolor:'transparent' above is silently ignored by this ERDDAP
-    // WMS endpoint (same "rendering params don't apply" quirk documented
-    // for colorscalerange on the other layers) — confirmed directly:
-    // requesting the z layer alone over pure land returned solid opaque
-    // green (24,107,24), not transparency. ERDDAP ships a standard
-    // "LandMask" WMS layer (GSHHS shoreline-derived) specifically for
-    // this — composited after the data layer via a second comma-separated
-    // name, it paints land with a flat neutral gray instead of relying on
-    // the ignored transparency param. Confirmed directly too: same request
-    // with ",LandMask" appended returned solid land as (204,204,204), real
-    // ocean bathymetry colors unaffected.
-    wmsOptions.layers = cfg.layer + ',LandMask';
-  } else {
-    wmsOptions.time = dateToUse + 'T12:00:00Z';
-    wmsOptions.abovemaxcolor = 'extend';
-    wmsOptions.belowmincolor = 'extend';
-  }
+  wmsOptions.time = dateToUse + 'T12:00:00Z';
+  wmsOptions.abovemaxcolor = 'extend';
+  wmsOptions.belowmincolor = 'extend';
 
   // Guard against a stale layer's delayed load/tileerror event firing after a
   // quick layer switch and overwriting the note with the PREVIOUS layer's
@@ -1745,6 +1741,154 @@ async function updateHotspots(bounds) {
   }
 }
 
+// ── Bathymetry raster (client-side, replaces the WMS color layer) ─────────
+// The srtm15plus WMS endpoint locks its color scale to the dataset's own
+// fixed colorBarMinimum/Maximum (-8000/+8000, a combined land+ocean
+// elevation range) and silently ignores every request to override it
+// (colorscalerange, palette, and even ERDDAP's own colorBarMinimum/Maximum
+// GetMap params — confirmed directly, identical output pixels regardless
+// of what's sent). That squeezes the entire visible ocean range into half
+// the scale, and the continental shelf specifically (0 to -200m, where
+// nearly all real fishing/diving structure is) into about 1% of it —
+// reads as "basically all blue, no detail" both inshore and offshore.
+// Since the server can't be told to use a better scale, this renders the
+// same raw SRTM15+ data (fetchHotspotBathyGrid — already used for the
+// hotspot finder and Depth contours) as our own canvas raster instead,
+// with a scale that spends most of its gradient on 0-200m and compresses
+// everything past that, instead of a WMS tile layer.
+const BATHY_RASTER_STOPS = [
+  {d:0,    c:[232,248,255]},
+  {d:5,    c:[194,236,250]},
+  {d:10,   c:[150,220,242]},
+  {d:20,   c:[107,201,232]},
+  {d:30,   c:[79,179,217]},
+  {d:50,   c:[58,148,196]},
+  {d:75,   c:[44,120,171]},
+  {d:100,  c:[31,95,143]},
+  {d:150,  c:[24,74,114]},
+  {d:200,  c:[18,58,92]},
+  {d:500,  c:[13,44,70]},
+  {d:1000, c:[9,32,50]},
+  {d:2000, c:[6,22,34]},
+  {d:4000, c:[3,13,20]},
+  {d:8000, c:[1,6,10]},
+];
+// elevM is the raw srtm15plus z value (negative underwater, positive =
+// land, same convention already used everywhere else in this file). Land
+// and missing data both return null so the caller skips painting that
+// cell — same "leave it transparent, let the base map show through"
+// approach as the LandMask fix above, just done ourselves since we're not
+// going through WMS at all here.
+function bathyRasterColor(elevM) {
+  if (elevM == null || elevM > 0) return null;
+  const depth = -elevM;
+  const stops = BATHY_RASTER_STOPS;
+  if (depth <= stops[0].d) return stops[0].c;
+  for (let i = 1; i < stops.length; i++) {
+    if (depth <= stops[i].d) {
+      const t = (depth - stops[i-1].d) / (stops[i].d - stops[i-1].d);
+      return stops[i-1].c.map((v, idx) => Math.round(v + (stops[i].c[idx] - v) * t));
+    }
+  }
+  return stops[stops.length - 1].c;
+}
+
+let bathyCanvas = null, bathyCtx = null, bathyRasterReqId = 0;
+function ensureBathyCanvas() {
+  if (bathyCanvas) return;
+  bathyCanvas = document.createElement('canvas');
+  bathyCanvas.style.position = 'absolute';
+  bathyCanvas.style.top = '0';
+  bathyCanvas.style.left = '0';
+  bathyCanvas.style.pointerEvents = 'none';
+  // Same z-index the WMS tile layer used for this same "color layer" role
+  // (below the currents canvas at 450 so particles stay visible on top if
+  // both are on, below Leaflet's own marker panes so pins stay clickable).
+  bathyCanvas.style.zIndex = 200;
+  map.getContainer().appendChild(bathyCanvas);
+  bathyCtx = bathyCanvas.getContext('2d');
+}
+function removeBathyCanvas() {
+  if (bathyCanvas) { bathyCanvas.remove(); bathyCanvas = null; bathyCtx = null; }
+}
+function resizeBathyCanvas() {
+  if (!bathyCanvas) return;
+  const size = map.getSize();
+  bathyCanvas.width = size.x;
+  bathyCanvas.height = size.y;
+}
+
+// Each grid cell is filled as its own quad, projected corner-by-corner via
+// map.latLngToContainerPoint — not one stretched image — so this stays
+// correctly aligned under Web Mercator regardless of zoom/latitude, the
+// same reasoning already documented for using per-tile WMS requests
+// instead of a single L.imageOverlay.
+async function renderBathyRaster() {
+  if (curLayer !== 'depth') return;
+  const myReqId = ++bathyRasterReqId;
+  ensureBathyCanvas();
+  bathyCanvas.style.opacity = curOpacity;
+  showSpinner(true, 'Loading ' + LAYERS.depth.name + '…');
+  try {
+    const grid = await fetchHotspotBathyGrid(map.getBounds(), 120);
+    if (myReqId !== bathyRasterReqId || curLayer !== 'depth') return;
+    bathyGridCache = grid;
+    drawBathyRaster();
+    if (grid.latSet.length < 2 || grid.lonSet.length < 2) { showSpinner(false); return; }
+    showSpinner(false); setStatus(''); updateAvailNote(LAYERS.depth);
+  } catch (err) {
+    if (myReqId !== bathyRasterReqId) return;
+    showSpinner(false);
+    setStatus('Bathymetry unavailable right now — the data source didn’t respond in time.');
+  }
+}
+
+// Pure re-projection + repaint of whatever's already in bathyGridCache — no
+// fetch. The WMS tile layer it replaces auto-tracks pan/zoom for free
+// (that's what makes L.tileLayer.wms worth using over a single stretched
+// image); a plain canvas appended straight to the map container doesn't
+// get that for free, since it isn't part of any Leaflet pane that moves
+// with the map during a drag. Without this, the raster would stay frozen
+// in its old screen position (visibly detached from the basemap moving
+// underneath it) until the next full refetch 600ms after the drag ends —
+// called on every 'move' event (fires continuously during a drag, unlike
+// 'moveend') so it stays visually anchored the whole time, the same way
+// the current-particle animation's per-frame reprojection does.
+let bathyGridCache = null;
+function drawBathyRaster() {
+  if (curLayer !== 'depth' || !bathyCtx || !bathyGridCache) return;
+  resizeBathyCanvas();
+  const { latSet, lonSet, grid } = bathyGridCache;
+  bathyCtx.clearRect(0, 0, bathyCanvas.width, bathyCanvas.height);
+  if (latSet.length < 2 || lonSet.length < 2) return;
+  const latStep = latSet[1] - latSet[0], lonStep = lonSet[1] - lonSet[0];
+  for (let i = 0; i < latSet.length; i++) {
+    for (let j = 0; j < lonSet.length; j++) {
+      const col = bathyRasterColor(grid[i][j]);
+      if (!col) continue;
+      const latC = latSet[i], lonC = lonSet[j];
+      // Slight overlap (not an exact half-step) between neighboring cells
+      // covers the sub-pixel rounding gaps plain adjacent-quad fills
+      // otherwise leave as thin seams between them.
+      const latLo = latC - latStep * 0.55, latHi = latC + latStep * 0.55;
+      const lonLo = lonC - lonStep * 0.55, lonHi = lonC + lonStep * 0.55;
+      const p1 = map.latLngToContainerPoint([latHi, lonLo]);
+      const p2 = map.latLngToContainerPoint([latHi, lonHi]);
+      const p3 = map.latLngToContainerPoint([latLo, lonHi]);
+      const p4 = map.latLngToContainerPoint([latLo, lonLo]);
+      bathyCtx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
+      bathyCtx.beginPath();
+      bathyCtx.moveTo(p1.x, p1.y);
+      bathyCtx.lineTo(p2.x, p2.y);
+      bathyCtx.lineTo(p3.x, p3.y);
+      bathyCtx.lineTo(p4.x, p4.y);
+      bathyCtx.closePath();
+      bathyCtx.fill();
+    }
+  }
+}
+map.on('move', drawBathyRaster);
+
 function hotspotIcon(rank, extreme) {
   const bg = extreme ? '#c62828' : '#eda100';
   const fg = extreme ? '#fff' : '#412402';
@@ -2096,6 +2240,8 @@ function toggleCurrents() {
 }
 map.on('resize', resizeCurrentCanvas);
 window.addEventListener('resize', resizeCurrentCanvas);
+map.on('resize', drawBathyRaster);
+window.addEventListener('resize', drawBathyRaster);
 
 // ── Point forecast panel (Wind/Gust, Temp, Pressure, Waves, Swell, Swell
 // Period, Wave Power, Tide, Moon Phase) — Open-Meteo forecast + marine APIs,
@@ -2840,6 +2986,7 @@ function setOpacity(val) {
   curOpacity = val/100;
   document.getElementById('oval').textContent = val+'%';
   if (oceanOverlay) oceanOverlay.setOpacity(curOpacity);
+  if (bathyCanvas) bathyCanvas.style.opacity = curOpacity;
 }
 
 // Debounce — wait 600ms after last event before loading
@@ -3955,13 +4102,14 @@ function importMarks(file) {
 // layer is active. Share one debounce timer — using loadTimer for both would
 // let one cancel the other's pending refresh.
 function scheduleOverlayRefresh() {
-  if (!showContours && !showDepthContours && !showCurrents && !showHotspots) return;
+  if (!showContours && !showDepthContours && !showCurrents && !showHotspots && curLayer !== 'depth') return;
   clearTimeout(overlayRefreshTimer);
   overlayRefreshTimer = setTimeout(() => {
     if (showContours) updateContours(curDate, map.getBounds());
     if (showDepthContours) updateDepthContours(map.getBounds());
     if (showCurrents) updateCurrents(curDate, map.getBounds());
     if (showHotspots) updateHotspots(map.getBounds());
+    if (curLayer === 'depth') renderBathyRaster();
   }, 600);
 }
 map.on('moveend', function() {
