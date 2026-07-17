@@ -1798,11 +1798,21 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
     canvas.style.top = '0';
     canvas.style.left = '0';
     canvas.style.pointerEvents = 'none';
-    // Same z-index the WMS tile layer used for this same "color layer"
-    // role (below the currents canvas at 450 so particles stay visible on
-    // top if both are on, below Leaflet's marker panes so pins stay
-    // clickable).
-    canvas.style.zIndex = 200;
+    // 200 was the z-index the WMS tile layer used for this same "color
+    // layer" role — but that number only meant anything WITHIN Leaflet's
+    // own tilePane (siblings of the base tiles inside .leaflet-map-pane).
+    // This canvas is appended directly to the map container instead (a
+    // SIBLING of .leaflet-map-pane itself, not something inside it), and
+    // .leaflet-map-pane has its own z-index of 400 — so at 200 this canvas
+    // was rendering entirely BELOW the whole base map, real pixel data
+    // drawn into it and all, just completely hidden underneath. This is
+    // the actual root cause of "nothing renders" — confirmed directly via
+    // elementFromPoint at the canvas's own center returning the map
+    // container, not the canvas. 410 sits above .leaflet-map-pane's 400,
+    // still below the currents canvas at 450 (so particles stay visible on
+    // top if both are on) and well below Leaflet's marker panes (600+) so
+    // pins stay clickable.
+    canvas.style.zIndex = 410;
     map.getContainer().appendChild(canvas);
     ctx = canvas.getContext('2d');
   }
