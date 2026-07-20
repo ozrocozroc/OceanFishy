@@ -439,8 +439,8 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <div class="sep"></div>
   <div style="display:flex;align-items:center;gap:6px">
     <label id="opacity-label" style="font-size:11px;color:var(--dim)">Opacity</label>
-    <input type="range" id="oslider" min="10" max="100" value="75" step="5" oninput="setOpacity(this.value)">
-    <span id="oval" style="font-size:11px;color:var(--dim);min-width:28px">75%</span>
+    <input type="range" id="oslider" min="10" max="100" value="70" step="5" oninput="setOpacity(this.value)">
+    <span id="oval" style="font-size:11px;color:var(--dim);min-width:28px">70%</span>
   </div>
   <div class="sep"></div>
   <span class="lbl">Overlays</span>
@@ -836,7 +836,7 @@ const LAYERS = {
 // ── State ─────────────────────────────────────────────────────────────────────
 let curLayer   = 'off';
 let curBase    = 'sat';
-let curOpacity = 0.75;
+let curOpacity = 0.70;
 let curDate    = todayStr();
 let oceanOverlay = null;
 let oceanLayerReqId = 0;
@@ -1085,15 +1085,24 @@ function loadOceanLayer() {
   // from the map, since removeOverlay() only unmounts it, it doesn't cancel
   // in-flight tile requests or detach their handlers.
   const myReqId = ++oceanLayerReqId;
+  // Leaflet's 'load' event fires once every requested tile has SETTLED —
+  // succeeded or failed, it doesn't distinguish — so it fires right after
+  // 'tileerror' too whenever every tile fails (e.g. a real outage: reported
+  // directly as the layer just looking silently broken with no error
+  // shown). Without hadTileError, 'load' unconditionally cleared whatever
+  // message 'tileerror' had just set, hiding it almost immediately.
+  let hadTileError = false;
   oceanOverlay = L.tileLayer.wms(cfg.url, wmsOptions).addTo(map);
   oceanOverlay.on('load', () => {
     if (myReqId !== oceanLayerReqId) return;
-    showSpinner(false); setStatus(''); updateAvailNote(cfg);
+    showSpinner(false);
+    if (!hadTileError) { setStatus(''); updateAvailNote(cfg); }
   });
   oceanOverlay.on('tileerror', () => {
     if (myReqId !== oceanLayerReqId) return;
+    hadTileError = true;
     showSpinner(false);
-    setStatus('Some ' + cfg.name + ' tiles failed to load — ERDDAP request may be rate-limited or unavailable.');
+    setStatus(cfg.name + ' is temporarily unavailable — the NOAA ERDDAP server rejected the request (outage or rate limit on their end, not this app). Try again shortly.');
   });
 }
 
@@ -1977,7 +1986,7 @@ if (!map.getPane(RASTER_PANE_NAME)) {
   pane.classList.add('leaflet-zoom-animated');
 }
 
-function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
+function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid, hasAlpha) {
   let canvas = null, ctx = null, reqId = 0, gridCache = null;
 
   function ensure() {
@@ -2014,6 +2023,56 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
     canvas.style.opacity = curOpacity;
     if (latSet.length < 2 || lonSet.length < 2) return;
     const latStep = latSet[1] - latSet[0], lonStep = lonSet[1] - lonSet[0];
+
+    function quadPath(pathCtx, latC, lonC, overlapFrac) {
+      const latLo = latC - latStep * overlapFrac, latHi = latC + latStep * overlapFrac;
+      const lonLo = lonC - lonStep * overlapFrac, lonHi = lonC + lonStep * overlapFrac;
+      const p1 = map.latLngToLayerPoint([latHi, lonLo]);
+      const p2 = map.latLngToLayerPoint([latHi, lonHi]);
+      const p3 = map.latLngToLayerPoint([latLo, lonHi]);
+      const p4 = map.latLngToLayerPoint([latLo, lonLo]);
+      pathCtx.moveTo(p1.x - origin.x, p1.y - origin.y);
+      pathCtx.lineTo(p2.x - origin.x, p2.y - origin.y);
+      pathCtx.lineTo(p3.x - origin.x, p3.y - origin.y);
+      pathCtx.lineTo(p4.x - origin.x, p4.y - origin.y);
+      pathCtx.closePath();
+    }
+
+    // colorFn returning a 4th (alpha) element — currently only the Fronts
+    // proxy layer (hasAlpha:true at construction) — needs a different draw
+    // path: filling each quad directly with its own rgba() double-composites
+    // alpha in the deliberate overlap strip between neighbors (see
+    // quadPath's overlapFrac comment below), which is invisible for opaque
+    // colors (Bathymetry/SST, this factory's original use) but reads as a
+    // visible darker grid line for translucent ones — reported directly as
+    // "the grid is visible... bit ugly". Fixed with a two-pass composite:
+    // paint the RGB mosaic opaque (overlap-safe, exactly like Bathymetry/SST
+    // already do) onto an offscreen canvas, then punch the real per-cell
+    // alpha out of it using a SEPARATE mask painted with NO overlap
+    // (destination-in) — alpha only ever gets set once per pixel that way,
+    // so neighboring cells' translucency can't stack.
+    if (hasAlpha) {
+      const off = document.createElement('canvas'); off.width = canvas.width; off.height = canvas.height;
+      const offCtx = off.getContext('2d');
+      const mask = document.createElement('canvas'); mask.width = canvas.width; mask.height = canvas.height;
+      const maskCtx = mask.getContext('2d');
+      for (let i = 0; i < latSet.length; i++) {
+        for (let j = 0; j < lonSet.length; j++) {
+          const col = colorFn(grid[i][j]);
+          if (!col) continue;
+          const latC = latSet[i], lonC = lonSet[j];
+          offCtx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
+          offCtx.beginPath(); quadPath(offCtx, latC, lonC, 0.55); offCtx.fill();
+          maskCtx.fillStyle = `rgba(255,255,255,${col[3]})`;
+          maskCtx.beginPath(); quadPath(maskCtx, latC, lonC, 0.5); maskCtx.fill();
+        }
+      }
+      offCtx.globalCompositeOperation = 'destination-in';
+      offCtx.drawImage(mask, 0, 0);
+      ctx.drawImage(off, 0, 0);
+      return;
+    }
+
     for (let i = 0; i < latSet.length; i++) {
       for (let j = 0; j < lonSet.length; j++) {
         const col = colorFn(grid[i][j]);
@@ -2021,24 +2080,12 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
         const latC = latSet[i], lonC = lonSet[j];
         // Slight overlap (not an exact half-step) between neighboring
         // cells covers the sub-pixel rounding gaps plain adjacent-quad
-        // fills otherwise leave as thin seams between them.
-        const latLo = latC - latStep * 0.55, latHi = latC + latStep * 0.55;
-        const lonLo = lonC - lonStep * 0.55, lonHi = lonC + lonStep * 0.55;
-        const p1 = map.latLngToLayerPoint([latHi, lonLo]);
-        const p2 = map.latLngToLayerPoint([latHi, lonHi]);
-        const p3 = map.latLngToLayerPoint([latLo, lonHi]);
-        const p4 = map.latLngToLayerPoint([latLo, lonLo]);
-        // 4th element is optional per-cell alpha (used by the Fronts proxy
-        // layer for its glassy fade-to-transparent look) — Bathymetry/SST's
-        // colorFns only ever return 3 elements, so they keep drawing fully
-        // opaque quads as before.
-        ctx.fillStyle = col.length > 3 ? `rgba(${col[0]},${col[1]},${col[2]},${col[3]})` : `rgb(${col[0]},${col[1]},${col[2]})`;
+        // fills otherwise leave as thin seams between them. Safe for these
+        // opaque colorFns (Bathymetry/SST) since overlap-stacking two
+        // identical opaque fills is a no-op visually.
+        ctx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
         ctx.beginPath();
-        ctx.moveTo(p1.x - origin.x, p1.y - origin.y);
-        ctx.lineTo(p2.x - origin.x, p2.y - origin.y);
-        ctx.lineTo(p3.x - origin.x, p3.y - origin.y);
-        ctx.lineTo(p4.x - origin.x, p4.y - origin.y);
-        ctx.closePath();
+        quadPath(ctx, latC, lonC, 0.55);
         ctx.fill();
       }
     }
@@ -2248,7 +2295,7 @@ function fsleProxyColor(strainPerDay) {
     }
   }
 }
-const fsleRaster = createCanvasRasterLayer('fsle', fsleProxyColor, 30, fetchFsleProxyGrid);
+const fsleRaster = createCanvasRasterLayer('fsle', fsleProxyColor, 30, fetchFsleProxyGrid, /* hasAlpha */ true);
 
 const CANVAS_RASTER_LAYERS = { depth: bathyRaster, sst: sstRaster, fsle: fsleRaster };
 
