@@ -1852,6 +1852,7 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
     canvas.style.top = '0';
     canvas.style.left = '0';
     canvas.style.pointerEvents = 'none';
+    canvas.style.transition = 'opacity 150ms linear';
     map.getPane(RASTER_PANE_NAME).appendChild(canvas);
     ctx = canvas.getContext('2d');
   }
@@ -1872,6 +1873,10 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
     L.DomUtil.setPosition(canvas, origin);
     const { latSet, lonSet, grid } = gridCache;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Only made visible once we're actually about to paint fresh, correctly-
+    // projected quads for the CURRENT view — see hide()/the zoomstart handler
+    // near map init for why this stays at opacity 0 through the zoom itself.
+    canvas.style.opacity = curOpacity;
     if (latSet.length < 2 || lonSet.length < 2) return;
     const latStep = latSet[1] - latSet[0], lonStep = lonSet[1] - lonSet[0];
     for (let i = 0; i < latSet.length; i++) {
@@ -1928,7 +1933,6 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
     if (curLayer !== layerKey) return;
     const myReqId = ++reqId;
     ensure();
-    canvas.style.opacity = curOpacity;
     const bounds = map.getBounds();
     const key = cacheKeyFor(bounds);
     if (fetchCache.has(key)) {
@@ -1974,10 +1978,20 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid) {
     gridCache = null;
   }
   function setOpacity(v) { if (canvas) canvas.style.opacity = v; }
+  // Hides the (now stale-for-this-zoom) painted quads the instant a zoom
+  // starts, without touching gridCache/fetchCache — draw() fades it back in
+  // once a fresh grid for the new view is actually ready. Previously the old
+  // grid stayed fully visible and got stretched by the pane's zoom-animated
+  // CSS transform for the ~250ms debounce + ~1-2.5s fetch it took to catch
+  // up, which is exactly the "land/rendering out of place, then catches up"
+  // artifact reported directly — same principle already applied to the
+  // currents canvas (see the movestart/zoomstart handler below: "no visible
+  // data beats visibly wrong data"), just missing here until now.
+  function hide() { if (canvas) canvas.style.opacity = '0'; }
 
   map.on('resize', draw);
   window.addEventListener('resize', draw);
-  return { render, draw, remove, setOpacity, prefetch, hasCanvas: () => !!canvas };
+  return { render, draw, remove, setOpacity, hide, prefetch, hasCanvas: () => !!canvas };
 }
 
 // Depth (Bathymetry): elevM is the raw srtm15plus z value (negative
@@ -4389,6 +4403,16 @@ map.on('zoomend', scheduleOverlayRefresh);
 map.on('movestart zoomstart', () => {
   if (showCurrents) currentFieldData = null;
   if (currentCtx) currentCtx.clearRect(0, 0, currentCanvas.width, currentCanvas.height);
+});
+
+// Hide the active canvas-raster layer (Bathymetry/SST) the instant a zoom
+// starts — see hide()'s comment in createCanvasRasterLayer for why. Scoped
+// to zoomstart only, not plain panning: a drag reprojects the existing grid
+// correctly in real time via the pane's own transform (no fetch needed), so
+// hiding on every pan would just add a needless flicker there.
+map.on('zoomstart', () => {
+  const layer = CANVAS_RASTER_LAYERS[curLayer];
+  if (layer) layer.hide();
 });
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
