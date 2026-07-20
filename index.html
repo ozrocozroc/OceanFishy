@@ -42,6 +42,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 .lb.on.chl{background:rgba(61,196,126,.16);border-color:rgba(61,196,126,.45);color:#5de09a}
 .lb.on.alt{background:rgba(107,142,255,.16);border-color:rgba(107,142,255,.45);color:#9bb0ff}
 .lb.on.depth{background:rgba(58,124,165,.18);border-color:rgba(58,124,165,.5);color:#85c4e8}
+.lb.on.fsle{background:rgba(255,176,32,.18);border-color:rgba(255,176,32,.5);color:#ffb020}
 .lb.on.ruler{background:rgba(255,210,63,.16);border-color:rgba(255,210,63,.5);color:#ffd23f}
 .lb.on.contours{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.4);color:#fff}
 .ruler-label{font-weight:700!important;font-size:12px!important}
@@ -77,7 +78,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 .of-glass-popup .leaflet-popup-content{margin:10px 12px;font-family:inherit;font-size:12px;line-height:1.5}
 .of-glass-popup .leaflet-popup-tip{background:rgba(18,28,46,.4);box-shadow:none}
 .of-glass-popup .leaflet-popup-close-button{color:var(--mut)}
-.bdot.sst{background:var(--sst)}.bdot.chl{background:var(--chl)}.bdot.alt{background:var(--alt)}.bdot.depth{background:#3a7ca5}
+.bdot.sst{background:var(--sst)}.bdot.chl{background:var(--chl)}.bdot.alt{background:var(--alt)}.bdot.depth{background:#3a7ca5}.bdot.fsle{background:#ffb020}
 
 /* Date bar */
 #datebar{display:flex;align-items:center;gap:8px;flex:1;min-width:0;overflow-x:auto}
@@ -260,7 +261,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   /* Ocean layer: 5 buttons -> 1 dropdown, same idea as the Base row's
      button-group-to-select swap — cuts a bunch of wrapped toolbar rows down
      to one, freeing up real vertical space above the map on a phone screen. */
-  #b-sst,#b-chl,#b-chlOlci,#b-alt,#b-depth{display:none}
+  #b-sst,#b-chl,#b-chlOlci,#b-alt,#b-depth,#b-fsle{display:none}
   #ocean-layer-select{display:inline-block}
 
   /* Further toolbar compaction: section labels (Base/Ocean layer/Overlays/
@@ -421,6 +422,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <button class="lb chl"    id="b-chlOlci" onclick="setLayer('chlOlci')" title="Copernicus Sentinel-3 OLCI daily — ~2-3 day lag"><span class="bdot chl"></span>OLCI <span style="font-size:9px;color:var(--dim)">2-3d</span></button>
   <button class="lb alt"    id="b-alt" onclick="setLayer('alt')"><span class="bdot alt"></span>Altimetry</button>
   <button class="lb depth"  id="b-depth" onclick="setLayer('depth')"><span class="bdot depth"></span>Bathymetry</button>
+  <button class="lb fsle"   id="b-fsle" onclick="setLayer('fsle')" title="Frontal-strain proxy computed from real current data — highlights convergence fronts the way FSLE ridges do, but is NOT the real AVISO FSLE product (that needs a registered API key this app doesn't use). Treat as a rough guide, not survey-grade."><span class="bdot fsle"></span>Fronts <span style="font-size:9px;color:var(--dim)">(proxy)</span></button>
   <!-- Mobile-only alternative to the 5 buttons above (hidden on mobile via
        @media, see CSS) — a dropdown needs an explicit "Off" option since
        there's no native "click the same option again to deselect" gesture
@@ -432,6 +434,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
     <option value="chlOlci">Chl OLCI (2-3d)</option>
     <option value="alt">Altimetry</option>
     <option value="depth">Bathymetry</option>
+    <option value="fsle">Fronts (proxy)</option>
   </select>
   <div class="sep"></div>
   <div style="display:flex;align-items:center;gap:6px">
@@ -808,6 +811,24 @@ const LAYERS = {
     // not a WMS tile layer, so none of the WMS-specific config applies.
     startDate:null,
     note:'SRTM15+ · 15 arc-sec (~270m) · Static bathymetry · land masked',
+    isStatic: true,
+  },
+  fsle: {
+    label:'Frontal-strain proxy (not real FSLE)', unit:'/day', name:'Fronts (proxy)',
+    // Matches FSLE_STRAIN_STOPS (see createCanvasRasterLayer/fetchFsleProxyGrid)
+    // — low strain is fully transparent by design (see FSLE_STRAIN_STOPS'
+    // comment), so this gradient only really means something above ~0.3.
+    grad:'linear-gradient(to right,rgb(20,70,120) 0%,rgb(20,140,150) 20%,rgb(80,190,90) 40%,rgb(230,220,40) 60%,rgb(255,140,20) 80%,rgb(255,40,40) 100%)',
+    min:'0.3/day', mid:'1.5/day', max:'3.5+/day',
+    // Real FSLE (TimeZero, AVISO) needs a registered API key this app
+    // doesn't use anywhere — see fetchFsleProxyGrid's comment for the full
+    // reasoning. This is a strain-rate proxy computed from the same real
+    // currents dataset as the Currents overlay, always "(last)" (the
+    // currents dataset's own latest day, like the Currents overlay — not
+    // the globally selected date chip, hence isStatic here even though the
+    // underlying data does change day to day).
+    startDate:null,
+    note:'Strain-rate proxy from real currents data (NOT true FSLE — no API key source available) · ~0.25° · today only',
     isStatic: true,
   },
 };
@@ -1503,6 +1524,80 @@ async function fetchHotspotChlGrid(bounds, maxPts) {
   return {latSet, lonSet, grid};
 }
 
+// ── FSLE (Finite-Size Lyapunov Exponent) proxy ─────────────────────────────
+// TimeZero and other marine nav software show real FSLE — a genuinely
+// different calculation from anything else in this app: particle
+// trajectories integrated forward/backward through a time-VARYING velocity
+// field to find true stretching ridges. The real AVISO/CNES FSLE product
+// requires a registered account/API key (confirmed: tds.aviso.altimetry.fr
+// isn't reachable anonymously, aviso.altimetry.fr/copernicus both redirect
+// to a login), which this app deliberately has none of anywhere else — so
+// this is NOT that.
+//
+// What this actually is: a local strain-rate field (normal + shear strain
+// from central-difference velocity gradients) computed directly from the
+// same real geostrophic current u/v data already used for the Currents
+// overlay — an instantaneous-snapshot proxy, not a time-integrated one, but
+// it lights up the same kind of convergence fronts/filament edges FSLE
+// ridges do, from real (not simulated) current data. Labeled "(proxy)" in
+// the UI everywhere it appears — see the b-fsle button's title tooltip for
+// the full disclosure. FSLE_STRAIN_STOPS below is calibrated against a real
+// pull off the NSW/QLD coast (2026-07-19, East Australian Current region):
+// median ~0.66/day, p90 ~1.5/day, p95 ~1.9/day, p99 ~2.8/day, max ~4.9/day —
+// not a guess.
+async function fetchFsleProxyGrid(bounds, maxPts) {
+  let latMin = Math.max(bounds.getSouth(), -89.9), latMax = Math.min(bounds.getNorth(), 89.9);
+  let lonMin = Math.max(bounds.getWest(), -179.9), lonMax = Math.min(bounds.getEast(), 179.9);
+  const NATIVE_RES = 0.25; // noaacwBLENDEDNRTcurrentsDaily native grid (see CURRENT_DS)
+  // Need at least a 3x3 native grid to compute even one interior (central-
+  // difference) point — same zoomed-in degenerate-grid problem already
+  // fixed for the Currents overlay (see updateCurrents' MIN_SPAN comment),
+  // just needing one more ring here since the strain calc also drops the
+  // outer border (no far-side neighbor to difference against).
+  const MIN_SPAN = NATIVE_RES * 3;
+  if (latMax - latMin < MIN_SPAN) { const c = (latMin+latMax)/2; latMin = c-MIN_SPAN/2; latMax = c+MIN_SPAN/2; }
+  if (lonMax - lonMin < MIN_SPAN) { const c = (lonMin+lonMax)/2; lonMin = c-MIN_SPAN/2; lonMax = c+MIN_SPAN/2; }
+  const latStride = Math.max(1, Math.ceil((latMax - latMin) / NATIVE_RES / maxPts));
+  const lonStride = Math.max(1, Math.ceil((lonMax - lonMin) / NATIVE_RES / maxPts));
+  const latQ = `(${latMin.toFixed(4)}):${latStride}:(${latMax.toFixed(4)})`;
+  const lonQ = `(${lonMin.toFixed(4)}):${lonStride}:(${lonMax.toFixed(4)})`;
+  const target = `${CURRENT_DS.host}/erddap/griddap/${CURRENT_DS.datasetId}.json?u_current[(last)][${latQ}][${lonQ}],v_current[(last)][${latQ}][${lonQ}]`;
+  const data = await fetchJsonViaCorsProxy(target);
+  const rows = data?.table?.rows || [];
+  const latSet = [...new Set(rows.map(r => r[1]))].sort((a, b) => a - b);
+  const lonSet = [...new Set(rows.map(r => r[2]))].sort((a, b) => a - b);
+  const idx = new Map();
+  latSet.forEach((v, i) => idx.set('lat' + v, i));
+  lonSet.forEach((v, j) => idx.set('lon' + v, j));
+  const uGrid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+  const vGrid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+  for (const r of rows) {
+    if (r[3] == null || r[4] == null) continue;
+    uGrid[idx.get('lat' + r[1])][idx.get('lon' + r[2])] = r[3];
+    vGrid[idx.get('lat' + r[1])][idx.get('lon' + r[2])] = r[4];
+  }
+  // Border row/col has no far-side neighbor to difference against — stays
+  // null (transparent), same "can't compute, don't paint" convention every
+  // other missing-data cell in this app follows.
+  const grid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+  if (latSet.length >= 3 && lonSet.length >= 3) {
+    const dLat = latSet[1] - latSet[0], dLon = lonSet[1] - lonSet[0];
+    for (let i = 1; i < latSet.length - 1; i++) {
+      const mPerDegLat = 111320, mPerDegLon = 111320 * Math.cos(latSet[i] * Math.PI / 180);
+      const dx = 2 * dLon * mPerDegLon, dy = 2 * dLat * mPerDegLat;
+      for (let j = 1; j < lonSet.length - 1; j++) {
+        const uW = uGrid[i][j-1], uE = uGrid[i][j+1], uS = uGrid[i-1][j], uN = uGrid[i+1][j];
+        const vW = vGrid[i][j-1], vE = vGrid[i][j+1], vS = vGrid[i-1][j], vN = vGrid[i+1][j];
+        if (uW==null||uE==null||uS==null||uN==null||vW==null||vE==null||vS==null||vN==null) continue;
+        const dudx = (uE-uW)/dx, dvdy = (vN-vS)/dy, dvdx = (vE-vW)/dx, dudy = (uN-uS)/dy;
+        const normal = dudx - dvdy, shear = dvdx + dudy;
+        grid[i][j] = Math.sqrt(normal*normal + shear*shear) * 86400; // strain rate, per day
+      }
+    }
+  }
+  return {latSet, lonSet, grid};
+}
+
 async function fetchHotspotCurrentGrid(bounds, maxPts) {
   const latMin = Math.max(bounds.getSouth(), -89.9), latMax = Math.min(bounds.getNorth(), 89.9);
   const lonMin = Math.max(bounds.getWest(), -179.9), lonMax = Math.min(bounds.getEast(), 179.9);
@@ -2075,7 +2170,34 @@ const sstRaster = createCanvasRasterLayer('sst', sstRasterColor, 120,
   // dateIso comment on fetchHotspotSstGrid.
   (bounds, maxPts) => fetchHotspotSstGrid(bounds, maxPts, curDate));
 
-const CANVAS_RASTER_LAYERS = { depth: bathyRaster, sst: sstRaster };
+// Below FSLE_STRAIN_STOPS[0].s (0.3/day — below the real median measured
+// off NSW/QLD, see fetchFsleProxyGrid's comment), the water is treated as
+// "not a meaningful front" and left fully transparent — the layer should
+// read as a handful of colored ridge lines over the base map, not a wash
+// covering the whole ocean the way SST/Chl do, matching how real FSLE/front
+// maps are conventionally displayed.
+const FSLE_STRAIN_STOPS = [
+  {s:0.3, c:[20,70,120]},
+  {s:0.6, c:[20,140,150]},
+  {s:1.0, c:[80,190,90]},
+  {s:1.5, c:[230,220,40]},
+  {s:2.2, c:[255,140,20]},
+  {s:3.5, c:[255,40,40]},
+];
+function fsleProxyColor(strainPerDay) {
+  if (strainPerDay == null || strainPerDay < FSLE_STRAIN_STOPS[0].s) return null;
+  const stops = FSLE_STRAIN_STOPS;
+  for (let i = 1; i < stops.length; i++) {
+    if (strainPerDay <= stops[i].s) {
+      const t = (strainPerDay - stops[i-1].s) / (stops[i].s - stops[i-1].s);
+      return stops[i-1].c.map((v, idx) => Math.round(v + (stops[i].c[idx] - v) * t));
+    }
+  }
+  return stops[stops.length - 1].c;
+}
+const fsleRaster = createCanvasRasterLayer('fsle', fsleProxyColor, 30, fetchFsleProxyGrid);
+
+const CANVAS_RASTER_LAYERS = { depth: bathyRaster, sst: sstRaster, fsle: fsleRaster };
 
 // Warms both raster caches for the app's own default starting view (NSW/
 // Sydney — see the map's own constructor center) in the background, so the
@@ -3161,7 +3283,7 @@ function selectDateChip(btn, iso) {
 function setLayer(type) {
   if (type === curLayer) type = 'off';
   curLayer = type;
-  ['sst','chl','chlOlci','alt','depth'].forEach(t => document.getElementById('b-'+t)?.classList.remove('on'));
+  ['sst','chl','chlOlci','alt','depth','fsle'].forEach(t => document.getElementById('b-'+t)?.classList.remove('on'));
   document.getElementById('b-'+type)?.classList.add('on');
   if (type === 'depth' && !showDepthContours && !localStorage.getItem(DEPTH_CONTOURS_AUTO_KEY)) {
     toggleDepthContours();
