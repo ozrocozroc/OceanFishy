@@ -1989,6 +1989,24 @@ if (!map.getPane(RASTER_PANE_NAME)) {
 function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid, hasAlpha) {
   let canvas = null, ctx = null, reqId = 0, gridCache = null;
 
+  // Reused across every quad in a hasAlpha draw() pass (see there) instead
+  // of allocating a fresh 2x2 canvas per quad — thousands of tiny canvas
+  // elements per redraw was the obvious alternative and needlessly slow.
+  let microCanvas = null, microCtx = null, microImg = null;
+  function ensureMicro() {
+    if (microCanvas) return;
+    microCanvas = document.createElement('canvas');
+    microCanvas.width = 2; microCanvas.height = 2;
+    microCtx = microCanvas.getContext('2d');
+    microImg = microCtx.createImageData(2, 2);
+  }
+  function setMicroPixel(idx, col) {
+    const o = idx * 4;
+    if (!col) { microImg.data[o] = 0; microImg.data[o+1] = 0; microImg.data[o+2] = 0; microImg.data[o+3] = 0; return; }
+    microImg.data[o] = col[0]; microImg.data[o+1] = col[1]; microImg.data[o+2] = col[2];
+    microImg.data[o+3] = Math.round((col.length > 3 ? col[3] : 1) * 255);
+  }
+
   function ensure() {
     if (canvas) return;
     canvas = document.createElement('canvas');
@@ -2039,37 +2057,45 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid, hasAlpha)
     }
 
     // colorFn returning a 4th (alpha) element — currently only the Fronts
-    // proxy layer (hasAlpha:true at construction) — needs a different draw
-    // path: filling each quad directly with its own rgba() double-composites
-    // alpha in the deliberate overlap strip between neighbors (see
-    // quadPath's overlapFrac comment below), which is invisible for opaque
-    // colors (Bathymetry/SST, this factory's original use) but reads as a
-    // visible darker grid line for translucent ones — reported directly as
-    // "the grid is visible... bit ugly". Fixed with a two-pass composite:
-    // paint the RGB mosaic opaque (overlap-safe, exactly like Bathymetry/SST
-    // already do) onto an offscreen canvas, then punch the real per-cell
-    // alpha out of it using a SEPARATE mask painted with NO overlap
-    // (destination-in) — alpha only ever gets set once per pixel that way,
-    // so neighboring cells' translucency can't stack.
+    // proxy layer (hasAlpha:true at construction) — needs a genuinely
+    // different draw path. Flat-filling each quad (even with the alpha-seam
+    // fix a first attempt at this used) still leaves a hard color EDGE at
+    // every quad boundary, since each quad is one uniform color — reported
+    // directly as "still has tiny grid lines" after that fix. The real
+    // problem was flat quads at all, not just how they composited.
+    //
+    // Fix: for each quad, build a 2x2 pixel texture from its four corner
+    // values (grid points are literally shared between neighboring quads,
+    // so adjacent quads always agree exactly at a shared edge) and
+    // drawImage() it stretched over the quad's screen rect with smoothing
+    // on — the browser's own bilinear upscale IS the correct interpolation
+    // for exactly this (2x2 corners -> smooth gradient across the whole
+    // rect), so colors blend continuously with no visible seam anywhere,
+    // and a null (transparent) corner next to a real one now fades out
+    // instead of cutting off hard.
     if (hasAlpha) {
-      const off = document.createElement('canvas'); off.width = canvas.width; off.height = canvas.height;
-      const offCtx = off.getContext('2d');
-      const mask = document.createElement('canvas'); mask.width = canvas.width; mask.height = canvas.height;
-      const maskCtx = mask.getContext('2d');
-      for (let i = 0; i < latSet.length; i++) {
-        for (let j = 0; j < lonSet.length; j++) {
-          const col = colorFn(grid[i][j]);
-          if (!col) continue;
-          const latC = latSet[i], lonC = lonSet[j];
-          offCtx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
-          offCtx.beginPath(); quadPath(offCtx, latC, lonC, 0.55); offCtx.fill();
-          maskCtx.fillStyle = `rgba(255,255,255,${col[3]})`;
-          maskCtx.beginPath(); quadPath(maskCtx, latC, lonC, 0.5); maskCtx.fill();
+      ensureMicro();
+      microCtx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingEnabled = true;
+      for (let i = 0; i < latSet.length - 1; i++) {
+        for (let j = 0; j < lonSet.length - 1; j++) {
+          const cSW = colorFn(grid[i][j]),     cSE = colorFn(grid[i][j+1]);
+          const cNW = colorFn(grid[i+1][j]),   cNE = colorFn(grid[i+1][j+1]);
+          if (!cSW && !cSE && !cNW && !cNE) continue;
+          const pNW = map.latLngToLayerPoint([latSet[i+1], lonSet[j]]);
+          const pNE = map.latLngToLayerPoint([latSet[i+1], lonSet[j+1]]);
+          const pSW = map.latLngToLayerPoint([latSet[i],   lonSet[j]]);
+          const pSE = map.latLngToLayerPoint([latSet[i],   lonSet[j+1]]);
+          const x0 = Math.min(pNW.x, pSW.x) - origin.x, x1 = Math.max(pNE.x, pSE.x) - origin.x;
+          const y0 = Math.min(pNW.y, pNE.y) - origin.y, y1 = Math.max(pSW.y, pSE.y) - origin.y;
+          const w = x1 - x0, h = y1 - y0;
+          if (w <= 0 || h <= 0) continue;
+          setMicroPixel(0, cNW); setMicroPixel(1, cNE);
+          setMicroPixel(2, cSW); setMicroPixel(3, cSE);
+          microCtx.putImageData(microImg, 0, 0);
+          ctx.drawImage(microCanvas, x0, y0, w, h);
         }
       }
-      offCtx.globalCompositeOperation = 'destination-in';
-      offCtx.drawImage(mask, 0, 0);
-      ctx.drawImage(off, 0, 0);
       return;
     }
 
