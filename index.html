@@ -3131,14 +3131,22 @@ function renderForecastPanel(wx, marine) {
   // column next to a dark night one only reads clearly right at the
   // boundary; a warm lighter wash on day columns makes the split obvious
   // at a glance across the whole row.
+  // Day tint bumped up to a genuinely bright/near-white wash (was a barely-
+  // there rgba(255,214,120,.2)) — per direct feedback that the previous
+  // version didn't read as "daytime" at a glance next to the dark night
+  // columns. Text sitting on it (hourLabelColor below) switches to a dark
+  // color to stay legible against the now much lighter background — the
+  // fixed light var(--dim) text used everywhere else in this panel would
+  // wash out against near-white.
   const nightBg = (isDay) => isDay === 0
     ? 'background:rgba(4,7,16,.6);'
-    : 'background:rgba(255,214,120,.2);';
+    : 'background:rgba(255,248,225,.75);';
+  const hourLabelColor = (isDay) => isDay === 0 ? 'color:var(--dim);' : 'color:rgba(30,24,8,.8);';
   // Opaque version of the same day/night tint, used only for the sticky
   // hour row on mobile — the translucent nightBg() above is fine for the
   // ordinary (non-sticky) rows, but a sticky row needs full opacity to stay
   // legible as other rows scroll underneath it.
-  const nightBgSticky = (isDay) => isDay === 0 ? 'background:#04070f;' : 'background:#2e2410;';
+  const nightBgSticky = (isDay) => isDay === 0 ? 'background:#04070f;' : 'background:#f3ead0;';
 
   // Mobile only: the day/hour header rows need to stay visible as the user
   // scrolls down through Wind/Pressure/Wave/Swell/Tide, or the date/hour
@@ -3201,7 +3209,7 @@ function renderForecastPanel(wx, marine) {
     const isDay = wx.hourly.is_day ? wx.hourly.is_day[hi] : 1;
     const nbg = nightBg(isDay);
 
-    hourRow += `<div class="fc-col" onclick="fcScrubTo(${ci})" style="${compact ? nightBgSticky(isDay) : nbg}font-size:10px;color:var(--dim);text-align:center;padding:${compact?'3px 0':'5px 0'};cursor:pointer">${hourLabel}</div>`;
+    hourRow += `<div class="fc-col" onclick="fcScrubTo(${ci})" style="${compact ? nightBgSticky(isDay) : nbg}font-size:10px;${hourLabelColor(isDay)}text-align:center;padding:${compact?'3px 0':'5px 0'};cursor:pointer">${hourLabel}</div>`;
 
     const code = wx.hourly.weather_code ? wx.hourly.weather_code[hi] : null;
     iconRow += `<div style="${nbg}text-align:center;font-size:${compact?14:17}px;padding:${rowPad}">${weatherIcon(code, isDay)}</div>`;
