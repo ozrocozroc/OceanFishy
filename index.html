@@ -1628,25 +1628,41 @@ async function fetchFsleProxyGrid(bounds, maxPts) {
   // Border row/col has no far-side neighbor to difference against — stays
   // null (transparent), same "can't compute, don't paint" convention every
   // other missing-data cell in this app follows.
-  const grid = Array.from({length: denseLat.length}, () => new Array(denseLon.length).fill(null));
-  if (denseLat.length >= 3 && denseLon.length >= 3) {
-    const dLat = denseLat[1] - denseLat[0], dLon = denseLon[1] - denseLon[0];
-    for (let i = 1; i < denseLat.length - 1; i++) {
-      const mPerDegLat = 111320, mPerDegLon = 111320 * Math.cos(denseLat[i] * Math.PI / 180);
-      const dx = 2 * dLon * mPerDegLon, dy = 2 * dLat * mPerDegLat;
-      for (let j = 1; j < denseLon.length - 1; j++) {
-        const uW = uDense[i][j-1], uE = uDense[i][j+1], uS = uDense[i-1][j], uN = uDense[i+1][j];
-        const vW = vDense[i][j-1], vE = vDense[i][j+1], vS = vDense[i-1][j], vN = vDense[i+1][j];
-        if (uW==null||uE==null||uS==null||uN==null||vW==null||vE==null||vS==null||vN==null) continue;
-        const dudx = (uE-uW)/dx, dvdy = (vN-vS)/dy, dvdx = (vE-vW)/dx, dudy = (uN-uS)/dy;
-        const normal = dudx - dvdy, shear = dvdx + dudy;
-        grid[i][j] = Math.sqrt(normal*normal + shear*shear) * 86400; // strain rate, per day
-      }
-    }
-  }
+  const grid = computeStrainGridPerDay(denseLat, denseLon, uDense, vDense);
   return {latSet: denseLat, lonSet: denseLon, grid};
 }
 
+// Shared by the Fronts proxy raster (on a bilinearly-supersampled grid, for
+// visual smoothness) and the hotspot finder's frontal-strain signal below
+// (on the raw native grid — hotspot candidates are already point-sampled
+// via nearestGridValue like every other signal there, so no supersampling
+// needed). Central-difference normal + shear strain, in per-day units —
+// see fetchFsleProxyGrid's own comment for the full "this is a proxy, not
+// real FSLE" disclosure.
+function computeStrainGridPerDay(latSet, lonSet, uGrid, vGrid) {
+  const grid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+  if (latSet.length < 3 || lonSet.length < 3) return grid;
+  const dLat = latSet[1] - latSet[0], dLon = lonSet[1] - lonSet[0];
+  for (let i = 1; i < latSet.length - 1; i++) {
+    const mPerDegLat = 111320, mPerDegLon = 111320 * Math.cos(latSet[i] * Math.PI / 180);
+    const dx = 2 * dLon * mPerDegLon, dy = 2 * dLat * mPerDegLat;
+    for (let j = 1; j < lonSet.length - 1; j++) {
+      const uW = uGrid[i][j-1], uE = uGrid[i][j+1], uS = uGrid[i-1][j], uN = uGrid[i+1][j];
+      const vW = vGrid[i][j-1], vE = vGrid[i][j+1], vS = vGrid[i-1][j], vN = vGrid[i+1][j];
+      if (uW==null||uE==null||uS==null||uN==null||vW==null||vE==null||vS==null||vN==null) continue;
+      const dudx = (uE-uW)/dx, dvdy = (vN-vS)/dy, dvdx = (vE-vW)/dx, dudy = (uN-uS)/dy;
+      const normal = dudx - dvdy, shear = dvdx + dudy;
+      grid[i][j] = Math.sqrt(normal*normal + shear*shear) * 86400; // strain rate, per day
+    }
+  }
+  return grid;
+}
+
+// Now also returns uGrid/vGrid and a strainGrid (frontal-strain proxy,
+// see computeStrainGridPerDay) alongside the speed grid — the hotspot
+// finder's strain signal reuses this exact same fetch instead of a second
+// griddap round trip, since it's the identical dataset/bbox/resolution the
+// speed signal already needs.
 async function fetchHotspotCurrentGrid(bounds, maxPts) {
   const latMin = Math.max(bounds.getSouth(), -89.9), latMax = Math.min(bounds.getNorth(), 89.9);
   const lonMin = Math.max(bounds.getWest(), -179.9), lonMax = Math.min(bounds.getEast(), 179.9);
@@ -1664,12 +1680,17 @@ async function fetchHotspotCurrentGrid(bounds, maxPts) {
   latSet.forEach((v, i) => idx.set('lat' + v, i));
   lonSet.forEach((v, j) => idx.set('lon' + v, j));
   const grid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+  const uGrid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
+  const vGrid = Array.from({length: latSet.length}, () => new Array(lonSet.length).fill(null));
   for (const r of rows) {
     const u = r[3], v = r[4];
     if (u == null || v == null) continue;
-    grid[idx.get('lat' + r[1])][idx.get('lon' + r[2])] = Math.sqrt(u * u + v * v) * 1.94384;
+    const i = idx.get('lat' + r[1]), j = idx.get('lon' + r[2]);
+    grid[i][j] = Math.sqrt(u * u + v * v) * 1.94384;
+    uGrid[i][j] = u; vGrid[i][j] = v;
   }
-  return {latSet, lonSet, grid};
+  const strainGrid = computeStrainGridPerDay(latSet, lonSet, uGrid, vGrid);
+  return {latSet, lonSet, grid, strainGrid};
 }
 
 // Bell curve peaking at 0.7kt — enough flow to hold a bait/berley line and
@@ -1719,7 +1740,7 @@ function suggestSpecies(depth, sst) {
 
 async function updateHotspots(bounds) {
   const myReqId = ++hotspotReqId;
-  setStatus('Analyzing temperature breaks, chlorophyll fronts, SLA fronts, bathymetry and currents in view…');
+  setStatus('Analyzing temperature breaks, chlorophyll fronts, SLA fronts, frontal strain, bathymetry and currents in view…');
   try {
     const [sla, bathy, current, sst, chl] = await Promise.all([
       fetchHotspotSlaGrid(bounds, HOTSPOT_GRID_POINTS),
@@ -1790,6 +1811,15 @@ async function updateHotspots(bounds) {
         const curScore = hotspotCurrentScore(speed);
         if (curScore == null) continue;
 
+        // Frontal-strain proxy (same real current data, see the Fronts
+        // layer/computeStrainGridPerDay) — optional like Chl, not a hard
+        // disqualifier: the differencing that produces it drops a border
+        // cell on every edge of whatever bbox got fetched, so a candidate
+        // landing right at that edge would otherwise be excluded for a
+        // reason that has nothing to do with its actual fishing potential.
+        const strain = nearestGridValue(current.latSet, current.lonSet, current.strainGrid, lat, lon);
+        const strainAvailable = strain != null;
+
         const v = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, lat, lon);
         const vN = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, latN, lon);
         const vS = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, latS, lon);
@@ -1816,7 +1846,7 @@ async function updateHotspots(bounds) {
         const chlAvailable = chlLog != null && chlLogN != null && chlLogS != null && chlLogE != null && chlLogW != null;
         const chlGrad = chlAvailable ? Math.hypot((chlLogN - chlLogS) / 2, (chlLogE - chlLogW) / 2) : null;
 
-        candidates.push({lat, lon, slaCm: v * 100, slaGrad, depth: Math.abs(depth), depthGrad, speed, curScore, temp, sstGrad, chlMgm3: chlAvailable ? Math.pow(10, chlLog) : null, chlGrad, chlAvailable, shoreDistKm});
+        candidates.push({lat, lon, slaCm: v * 100, slaGrad, depth: Math.abs(depth), depthGrad, speed, curScore, temp, sstGrad, chlMgm3: chlAvailable ? Math.pow(10, chlLog) : null, chlGrad, chlAvailable, strain, strainAvailable, shoreDistKm});
       }
     }
 
@@ -1828,20 +1858,25 @@ async function updateHotspots(bounds) {
     // Temperature break and chlorophyll front (bait concentration) share the
     // top weight — both are independent "something is actually concentrated
     // here" signals, one thermal, one biological. Bathymetry next (structure
-    // the fish relate to), SLA next (confirms an eddy is actually driving the
-    // fronts rather than e.g. river outflow), current speed last (a
-    // workable-vs-unfishable gate more than a "best zone" indicator alone).
-    const WEIGHTS = {sst: 0.28, chl: 0.22, depth: 0.20, sla: 0.15, current: 0.15};
+    // the fish relate to). Strain (frontal-strain proxy — see the Fronts
+    // layer) sits with SLA: both are "something is actively converging/
+    // driving this front" confirmation signals, strain more direct (real
+    // current shear right at this point) than SLA (an eddy inferred from sea
+    // level). Current speed last (a workable-vs-unfishable gate more than a
+    // "best zone" indicator alone).
+    const WEIGHTS = {sst: 0.25, chl: 0.20, depth: 0.18, sla: 0.12, strain: 0.13, current: 0.12};
     const maxSlaGrad   = Math.max(...candidates.map(c => c.slaGrad));
     const maxDepthGrad = Math.max(...candidates.map(c => c.depthGrad));
     const maxSstGrad   = Math.max(...candidates.map(c => c.sstGrad));
     const maxChlGrad   = Math.max(...candidates.filter(c => c.chlAvailable).map(c => c.chlGrad), 0);
+    const maxStrain    = Math.max(...candidates.filter(c => c.strainAvailable).map(c => c.strain), 0);
     candidates.forEach(c => {
-      // Missing Chl redistributes its weight across whichever signals ARE
-      // present instead of just scoring 0 for that slot — otherwise every
-      // candidate on a cloudy-coast day would be capped at 0.78 max and
-      // rank below distant candidates that merely have clear OLCI coverage,
-      // which has nothing to do with actual fishing potential.
+      // Missing Chl/strain redistributes its weight across whichever
+      // signals ARE present instead of just scoring 0 for that slot —
+      // otherwise every candidate on a cloudy-coast day (Chl) or right at
+      // the fetched bbox's edge (strain) would be capped below distant
+      // candidates that merely have full coverage, which has nothing to do
+      // with actual fishing potential.
       const named = {
         sst: [WEIGHTS.sst, maxSstGrad ? c.sstGrad / maxSstGrad : 0],
         depth: [WEIGHTS.depth, maxDepthGrad ? c.depthGrad / maxDepthGrad : 0],
@@ -1849,6 +1884,7 @@ async function updateHotspots(bounds) {
         current: [WEIGHTS.current, c.curScore],
       };
       if (c.chlAvailable) named.chl = [WEIGHTS.chl, maxChlGrad ? c.chlGrad / maxChlGrad : 0];
+      if (c.strainAvailable) named.strain = [WEIGHTS.strain, maxStrain ? c.strain / maxStrain : 0];
       const parts = Object.values(named);
       const weightSum = parts.reduce((s, [w]) => s + w, 0);
       c.score = parts.reduce((s, [w, val]) => s + w * val, 0) / weightSum;
@@ -1891,8 +1927,8 @@ async function updateHotspots(bounds) {
       const extreme = (wind && wind.speedKmh >= EXTREME_WIND_KMH) || (swell && swell.heightM >= EXTREME_SWELL_M);
       const ct = c.contributions;
       const fmt = (k, label) => ct[k] ? `${label} ${ct[k].earned.toFixed(0)}/${ct[k].max.toFixed(0)}` : `${label} n/a`;
-      const breakdown = ['sst','chl','depth','sla','current']
-        .map(k => fmt(k, {sst:'SST', chl:'Chl', depth:'Depth', sla:'SLA', current:'Cur'}[k]))
+      const breakdown = ['sst','chl','depth','sla','strain','current']
+        .map(k => fmt(k, {sst:'SST', chl:'Chl', depth:'Depth', sla:'SLA', strain:'Front', current:'Cur'}[k]))
         .join(' · ');
       const weatherLine = `Wind: ${wind ? Math.round(wind.speedKmh) + ' km/h' : 'n/a'} · Swell: ${swell ? swell.heightM.toFixed(1) + ' m' : 'n/a'}`;
       L.marker([c.lat, c.lon], {icon: hotspotIcon(i + 1, extreme)}).addTo(hotspotGroup).bindPopup(
@@ -1904,6 +1940,7 @@ async function updateHotspots(bounds) {
         `Chl-a: ${c.chlAvailable ? c.chlMgm3.toFixed(2) + ' mg/m³, front strength ' + c.chlGrad.toFixed(2) + ' (log10 scale)/cell' : 'no data (cloud/glint — common near coast)'}<br>` +
         `Depth: ${c.depth.toFixed(0)}m (Δ${c.depthGrad.toFixed(0)}m to nearest cell — canyon/shelf-edge signal)<br>` +
         `SLA: ${c.slaCm >= 0 ? '+' : ''}${c.slaCm.toFixed(0)}cm, front strength ${(c.slaGrad * 100).toFixed(1)}cm/cell<br>` +
+        `Frontal strain: ${c.strainAvailable ? c.strain.toFixed(2) + '/day (convergence proxy, not real FSLE)' : 'no data (edge of fetched area)'}<br>` +
         `Current: ${c.speed.toFixed(2)} kt<br>` +
         `${weatherLine}<br>` +
         `<span style="color:var(--dim)">Possible: ${suggestSpecies(c.depth, c.temp)}</span>`,
