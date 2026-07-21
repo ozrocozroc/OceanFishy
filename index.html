@@ -356,18 +356,20 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   /* The header (title + coords + weather-icon summary + two model
      dropdowns) was wrapping into 3 stacked rows on a narrow screen, eating
      most of the panel's already-tight 33vh before the actual hourly grid —
-     the whole point of the panel — even started, so header padding/gaps are
-     tightened below to claw room back.
-     fc-summary itself duplicates numbers that are already visible in the
-     grid's own rows *while that hour's column is on screen* — but once the
-     sticky header lets you scroll down to Wave/Swell/Tide, the Wind/Wave
-     numbers scroll out of view too, and this was the only place still
-     showing a live readout for whatever hour is currently scrubbed. Keep it
-     on mobile (just shrunk) rather than hiding it, or dragging the timeline
-     has no visible effect at all once you're scrolled past the icon row. */
-  #forecast-panel #fc-summary{font-size:9px;gap:5px}
+     the whole point of the panel — even started, so both are hidden on
+     mobile now (not just shrunk) to claw that room back for actual rows:
+     - fc-coords duplicates the Live Readings coordinate line in the
+       sidebar, which is already refreshed to the same lat/lng the instant
+       the forecast panel opens (see openForecastPanel's updateLiveReadings
+       call) — nothing lost by not repeating it here too.
+     - fc-summary duplicates numbers already visible in the grid's own rows
+       *while that hour's column is on screen*, and was originally kept as
+       the only live readout once you scroll past the header — but #fc-cursor
+       (the orange scrub-position line) spans the FULL grid height, not just
+       the header, so it still marks the current column against Wave/Swell/
+       Tide once scrolled down to them. The numeric duplicate isn't needed. */
+  #forecast-panel #fc-summary,#forecast-panel #fc-coords{display:none}
   #forecast-panel > div:first-child{padding:6px 8px;gap:6px 8px;flex-wrap:wrap}
-  #forecast-panel #fc-coords{font-size:9px}
   /* The wave-model dropdown in particular shows full option text like
      "ECMWF WAM 9km (recommended)" — at ~194px wide with flex-shrink:0 and
      no wrap on its container, the pair of dropdowns didn't just take extra
@@ -3215,7 +3217,7 @@ function renderForecastPanel(wx, marine) {
   // (roughly) each row's vertical footprint so noticeably more of the
   // ~10-row grid fits inside the panel's 33vh cap on mobile.
   const rowPad = compact ? '2px 0' : '4px 0';
-  const label = (text) => `<div style="position:sticky;left:0;z-index:2;background:rgba(11,19,32,.97);font-size:11px;color:var(--dim);display:flex;align-items:center;padding:0 ${compact?5:8}px;border-right:1px solid var(--bdr);white-space:nowrap;line-height:1.2">${text}</div>`;
+  const label = (text) => `<div style="position:sticky;left:0;z-index:2;background:rgba(11,19,32,.97);font-size:${compact?10:11}px;color:var(--dim);display:flex;align-items:center;padding:0 ${compact?5:8}px;border-right:1px solid var(--bdr);white-space:nowrap;line-height:1.2">${text}</div>`;
   // A subtle tint over night-time columns (is_day===0), applied to the plain
   // (non color-scaled) rows so day/night is readable at a glance without
   // fighting the wind-strength color coding.
@@ -3307,7 +3309,7 @@ function renderForecastPanel(wx, marine) {
     iconRow += `<div style="${nbg}text-align:center;font-size:${compact?14:17}px;padding:${rowPad}">${weatherIcon(code, isDay)}</div>`;
 
     const t = wx.hourly.temperature_2m[hi];
-    tempRow += `<div style="background:${tempColor(t)};text-align:center;font-size:12px;font-weight:600;padding:${rowPad}">${t!=null?Math.round(t)+'°':'–'}</div>`;
+    tempRow += `<div style="background:${tempColor(t)};text-align:center;font-size:${compact?11:12}px;font-weight:600;padding:${rowPad}">${t!=null?Math.round(t)+'°':'–'}</div>`;
 
     let rainSum = 0;
     for (let k = hi; k < Math.min(hi+STEP, times.length); k++) { const p = wx.hourly.precipitation?.[k]; if (p!=null) rainSum += p; }
@@ -3317,30 +3319,30 @@ function renderForecastPanel(wx, marine) {
     const wkt = wx.hourly.wind_speed_10m[hi], gkt = wx.hourly.wind_gusts_10m[hi], wdir = wx.hourly.wind_direction_10m[hi];
     windRow += `<div style="text-align:center;padding:${compact?'2px 0 2px':'4px 0 3px'};background:${windColor(wkt)}">
       <div style="line-height:1;margin-bottom:2px">${dirArrow(toFlowDir(wdir),compact?10:13)}</div>
-      <div style="font-size:11px;font-weight:700;line-height:1.2">${wkt!=null?Math.round(wkt):'–'}</div>
-      <div style="font-size:10px;opacity:.75;line-height:1.15">${gkt!=null?Math.round(gkt):'–'}</div>
+      <div style="font-size:${compact?10:11}px;font-weight:700;line-height:1.2">${wkt!=null?Math.round(wkt):'–'}</div>
+      <div style="font-size:${compact?9:10}px;opacity:.75;line-height:1.15">${gkt!=null?Math.round(gkt):'–'}</div>
     </div>`;
 
     const p = wx.hourly.pressure_msl[hi];
-    pressRow += `<div style="${nbg}text-align:center;font-size:11px;color:var(--dim);padding:${rowPad}">${p!=null?Math.round(p):'–'}</div>`;
+    pressRow += `<div style="${nbg}text-align:center;font-size:${compact?10:11}px;color:var(--dim);padding:${rowPad}">${p!=null?Math.round(p):'–'}</div>`;
 
     const wh = marine.hourly.wave_height[hi], wavedir = marine.hourly.wave_direction?.[hi];
-    waveRow += `<div style="background:${waveColor(wh)};text-align:center;font-size:11px;padding:${rowPad}">
+    waveRow += `<div style="background:${waveColor(wh)};text-align:center;font-size:${compact?10:11}px;padding:${rowPad}">
       <div style="line-height:1">${dirArrow(toFlowDir(wavedir),compact?9:11)}</div>
       <div>${wh!=null?wh.toFixed(1):'–'}</div>
     </div>`;
 
     const sh = marine.hourly.swell_wave_height[hi], sp = marine.hourly.swell_wave_period[hi], sdir = marine.hourly.swell_wave_direction?.[hi];
-    swellRow += `<div style="background:${waveColor(sh)};text-align:center;font-size:10px;padding:${rowPad}">
+    swellRow += `<div style="background:${waveColor(sh)};text-align:center;font-size:${compact?9:10}px;padding:${rowPad}">
       <div style="line-height:1">${dirArrow(toFlowDir(sdir),compact?9:11)}</div>
       <div>${sh!=null?sh.toFixed(1)+'/'+(sp!=null?Math.round(sp):'–'):'–'}</div>
     </div>`;
 
     const pw = wavePower[hi];
-    powerRow += `<div style="background:${powerColor(pw)};text-align:center;font-size:10px;padding:${rowPad}">${pw!=null?Math.round(pw):'–'}</div>`;
+    powerRow += `<div style="background:${powerColor(pw)};text-align:center;font-size:${compact?9:10}px;padding:${rowPad}">${pw!=null?Math.round(pw):'–'}</div>`;
 
     const tv = tideVals[hi] != null ? tideVals[hi] - tideDatum : null;
-    tideRow += `<div style="background:${tideColor(tv)};text-align:center;font-size:11px;padding:${rowPad}">${tv!=null?tv.toFixed(1):'–'}</div>`;
+    tideRow += `<div style="background:${tideColor(tv)};text-align:center;font-size:${compact?10:11}px;padding:${rowPad}">${tv!=null?tv.toFixed(1):'–'}</div>`;
   });
 
   const gridWidth = labelW + nCols*colW;
