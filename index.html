@@ -1745,12 +1745,23 @@ async function updateHotspots(bounds) {
   const myReqId = ++hotspotReqId;
   setStatus('Analyzing temperature breaks, chlorophyll fronts, SLA fronts, frontal strain, bathymetry and currents in view…');
   try {
+    // SST and bathymetry are NOT caught here — they drive the search grid
+    // and the land/depth eligibility filter respectively, so a candidate
+    // set can't be built at all without them; a failure there should still
+    // abort the whole run via the outer catch below, same as before. SLA,
+    // current (+strain), and Chl are caught to null instead of letting a
+    // single source outage (e.g. the NOAA CoastWatch disk-full incident)
+    // take down every other signal too — see the per-signal availability
+    // checks below, which now distinguish "source responded but this cell
+    // has a gap" (existing behavior, still a hard per-cell filter) from
+    // "the whole source failed to respond" (new — signal just drops out of
+    // scoring for every candidate, weight redistributes like Chl already did).
     const [sla, bathy, current, sst, chl] = await Promise.all([
-      fetchHotspotSlaGrid(bounds, HOTSPOT_GRID_POINTS),
+      fetchHotspotSlaGrid(bounds, HOTSPOT_GRID_POINTS).catch(() => null),
       fetchHotspotBathyGrid(bounds, HOTSPOT_GRID_POINTS),
-      fetchHotspotCurrentGrid(bounds, HOTSPOT_GRID_POINTS),
+      fetchHotspotCurrentGrid(bounds, HOTSPOT_GRID_POINTS).catch(() => null),
       fetchHotspotSstGrid(bounds, HOTSPOT_GRID_POINTS),
-      fetchHotspotChlGrid(bounds, HOTSPOT_GRID_POINTS),
+      fetchHotspotChlGrid(bounds, HOTSPOT_GRID_POINTS).catch(() => null),
     ]);
     if (myReqId !== hotspotReqId) return;
     hotspotGroup.clearLayers();
@@ -1810,26 +1821,42 @@ async function updateHotspots(bounds) {
         const shoreDistKm = distanceToShoreKm(lat, lon);
         if (shoreDistKm > MAX_SHORE_DIST_KM) continue;
 
-        const speed = nearestGridValue(current.latSet, current.lonSet, current.grid, lat, lon);
-        const curScore = hotspotCurrentScore(speed);
-        if (curScore == null) continue;
+        // Current + strain: if the whole source failed to respond
+        // (current === null), skip both signals for every candidate rather
+        // than filtering every single cell out — previously curScore==null
+        // was a hard per-cell continue, which was correct for "this one
+        // point has no coverage" but wrong for "the entire fetch failed,"
+        // since that would silently zero out every candidate in the view.
+        let speed = null, curScore = null, strain = null, strainAvailable = false;
+        if (current) {
+          speed = nearestGridValue(current.latSet, current.lonSet, current.grid, lat, lon);
+          curScore = hotspotCurrentScore(speed);
+          if (curScore == null) continue; // source is up, this specific cell just has no coverage
+          // Frontal-strain proxy (same real current data, see the Fronts
+          // layer/computeStrainGridPerDay) — optional like Chl, not a hard
+          // disqualifier: the differencing that produces it drops a border
+          // cell on every edge of whatever bbox got fetched, so a candidate
+          // landing right at that edge would otherwise be excluded for a
+          // reason that has nothing to do with its actual fishing potential.
+          strain = nearestGridValue(current.latSet, current.lonSet, current.strainGrid, lat, lon);
+          strainAvailable = strain != null;
+        }
 
-        // Frontal-strain proxy (same real current data, see the Fronts
-        // layer/computeStrainGridPerDay) — optional like Chl, not a hard
-        // disqualifier: the differencing that produces it drops a border
-        // cell on every edge of whatever bbox got fetched, so a candidate
-        // landing right at that edge would otherwise be excluded for a
-        // reason that has nothing to do with its actual fishing potential.
-        const strain = nearestGridValue(current.latSet, current.lonSet, current.strainGrid, lat, lon);
-        const strainAvailable = strain != null;
-
-        const v = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, lat, lon);
-        const vN = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, latN, lon);
-        const vS = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, latS, lon);
-        const vE = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, lat, lonE);
-        const vW = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, lat, lonW);
-        if (v == null || vN == null || vS == null || vE == null || vW == null) continue;
-        const slaGrad = Math.hypot((vN - vS) / 2, (vE - vW) / 2);
+        // SLA: same source-vs-cell distinction as current above. When sla
+        // is null (whole fetch failed), slaCm/slaGrad stay null and the
+        // sla/eddyCore scoring terms drop out below instead of every
+        // candidate being filtered out.
+        let slaCm = null, slaGrad = null;
+        if (sla) {
+          const v = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, lat, lon);
+          const vN = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, latN, lon);
+          const vS = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, latS, lon);
+          const vE = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, lat, lonE);
+          const vW = nearestGridValue(sla.latSet, sla.lonSet, sla.grid, lat, lonW);
+          if (v == null || vN == null || vS == null || vE == null || vW == null) continue; // source is up, this specific cell just has no coverage
+          slaCm = v * 100;
+          slaGrad = Math.hypot((vN - vS) / 2, (vE - vW) / 2);
+        }
 
         // Chl-a (OLCI, optical) has real coverage gaps from cloud and coastal
         // sun-glint that SST (microwave+IR blend) and altimetry (radar)
@@ -1841,11 +1868,16 @@ async function updateHotspots(bounds) {
         // water (where OLCI happened to be clear) as the only survivors —
         // exactly backwards from the point of the tool. Chl is optional now;
         // see the scoring step below for how a missing reading is handled.
-        const chlLog = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, lat, lon);
-        const chlLogN = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, latN, lon);
-        const chlLogS = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, latS, lon);
-        const chlLogE = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, lat, lonE);
-        const chlLogW = nearestGridValue(chl.latSet, chl.lonSet, chl.grid, lat, lonW);
+        // Chl: guarded the same way as SLA/current above for a whole-source
+        // failure (chl === null); the pre-existing chlAvailable flag below
+        // already covers the per-cell cloud/glint gap case, now it also
+        // naturally covers "the fetch never came back" since every
+        // chlLog* stays null in that case too.
+        const chlLog = chl ? nearestGridValue(chl.latSet, chl.lonSet, chl.grid, lat, lon) : null;
+        const chlLogN = chl ? nearestGridValue(chl.latSet, chl.lonSet, chl.grid, latN, lon) : null;
+        const chlLogS = chl ? nearestGridValue(chl.latSet, chl.lonSet, chl.grid, latS, lon) : null;
+        const chlLogE = chl ? nearestGridValue(chl.latSet, chl.lonSet, chl.grid, lat, lonE) : null;
+        const chlLogW = chl ? nearestGridValue(chl.latSet, chl.lonSet, chl.grid, lat, lonW) : null;
         const chlAvailable = chlLog != null && chlLogN != null && chlLogS != null && chlLogE != null && chlLogW != null;
         const chlGrad = chlAvailable ? Math.hypot((chlLogN - chlLogS) / 2, (chlLogE - chlLogW) / 2) : null;
         // Positive = this point sits in clearer water than its immediate
@@ -1856,7 +1888,7 @@ async function updateHotspots(bounds) {
         // the same local gradient as one right on the clean-water edge).
         const chlClearSide = chlAvailable ? (chlLogN + chlLogS + chlLogE + chlLogW) / 4 - chlLog : null;
 
-        candidates.push({lat, lon, slaCm: v * 100, slaGrad, depth: Math.abs(depth), depthGrad, speed, curScore, temp, sstGrad, chlMgm3: chlAvailable ? Math.pow(10, chlLog) : null, chlGrad, chlClearSide, chlAvailable, strain, strainAvailable, shoreDistKm});
+        candidates.push({lat, lon, slaCm, slaGrad, depth: Math.abs(depth), depthGrad, speed, curScore, temp, sstGrad, chlMgm3: chlAvailable ? Math.pow(10, chlLog) : null, chlGrad, chlClearSide, chlAvailable, strain, strainAvailable, shoreDistKm});
       }
     }
 
@@ -1880,7 +1912,7 @@ async function updateHotspots(bounds) {
     // getting their own weight slot, so the popup breakdown doesn't grow an
     // extra row per addition — see sstRangeScore/chlClearSide above.
     const WEIGHTS = {sst: 0.22, chl: 0.18, depth: 0.18, sla: 0.12, strain: 0.12, current: 0.10, eddyCore: 0.08};
-    const maxSlaGrad      = Math.max(...candidates.map(c => c.slaGrad));
+    const maxSlaGrad      = Math.max(...candidates.filter(c => c.slaCm != null).map(c => c.slaGrad), 0);
     const maxDepthGrad    = Math.max(...candidates.map(c => c.depthGrad));
     const maxSstGrad      = Math.max(...candidates.map(c => c.sstGrad));
     const maxChlGrad      = Math.max(...candidates.filter(c => c.chlAvailable).map(c => c.chlGrad), 0);
@@ -1888,20 +1920,23 @@ async function updateHotspots(bounds) {
     const maxStrain       = Math.max(...candidates.filter(c => c.strainAvailable).map(c => c.strain), 0);
     const gameSeasons     = activeGameSeasons(new Date().getMonth());
     candidates.forEach(c => {
-      // Missing Chl/strain redistributes its weight across whichever
-      // signals ARE present instead of just scoring 0 for that slot —
-      // otherwise every candidate on a cloudy-coast day (Chl) or right at
-      // the fetched bbox's edge (strain) would be capped below distant
-      // candidates that merely have full coverage, which has nothing to do
-      // with actual fishing potential.
+      // Missing Chl/strain/SLA/current redistributes its weight across
+      // whichever signals ARE present instead of just scoring 0 for that
+      // slot — otherwise every candidate on a cloudy-coast day (Chl), right
+      // at the fetched bbox's edge (strain), or during a source-wide outage
+      // (SLA/current, see the .catch(() => null) above) would be capped
+      // below candidates that merely have full coverage, which has nothing
+      // to do with actual fishing potential.
       const sstCombined = 0.7 * (maxSstGrad ? c.sstGrad / maxSstGrad : 0) + 0.3 * sstRangeScore(c.temp, gameSeasons);
       const named = {
         sst: [WEIGHTS.sst, sstCombined],
         depth: [WEIGHTS.depth, maxDepthGrad ? c.depthGrad / maxDepthGrad : 0],
-        sla: [WEIGHTS.sla, maxSlaGrad ? c.slaGrad / maxSlaGrad : 0],
-        current: [WEIGHTS.current, c.curScore],
-        eddyCore: [WEIGHTS.eddyCore, eddyCoreScore(c.slaCm)],
       };
+      if (c.slaCm != null) {
+        named.sla = [WEIGHTS.sla, maxSlaGrad ? c.slaGrad / maxSlaGrad : 0];
+        named.eddyCore = [WEIGHTS.eddyCore, eddyCoreScore(c.slaCm)];
+      }
+      if (c.curScore != null) named.current = [WEIGHTS.current, c.curScore];
       if (c.chlAvailable) {
         const chlCombined = 0.7 * (maxChlGrad ? c.chlGrad / maxChlGrad : 0) + 0.3 * (maxChlClearSide ? Math.max(0, c.chlClearSide) / maxChlClearSide : 0);
         named.chl = [WEIGHTS.chl, chlCombined];
@@ -1961,10 +1996,10 @@ async function updateHotspots(bounds) {
         `SST: ${c.temp.toFixed(1)}°C, temp break ${(c.sstGrad).toFixed(2)}°C/cell<br>` +
         `Chl-a: ${c.chlAvailable ? c.chlMgm3.toFixed(2) + ' mg/m³, front strength ' + c.chlGrad.toFixed(2) + ' (log10 scale)/cell' : 'no data (cloud/glint — common near coast)'}<br>` +
         `Depth: ${c.depth.toFixed(0)}m (Δ${c.depthGrad.toFixed(0)}m to nearest cell — canyon/shelf-edge signal)<br>` +
-        `SLA: ${c.slaCm >= 0 ? '+' : ''}${c.slaCm.toFixed(0)}cm, front strength ${(c.slaGrad * 100).toFixed(1)}cm/cell<br>` +
-        `Eddy core: ${c.slaCm > 0 ? (eddyCoreScore(c.slaCm) * 100).toFixed(0) + '% warm-core bonus' : 'none (not on a warm core)'}<br>` +
+        `SLA: ${c.slaCm != null ? (c.slaCm >= 0 ? '+' : '') + c.slaCm.toFixed(0) + 'cm, front strength ' + (c.slaGrad * 100).toFixed(1) + 'cm/cell' : 'no data (source unavailable)'}<br>` +
+        `Eddy core: ${c.slaCm == null ? 'no data (source unavailable)' : c.slaCm > 0 ? (eddyCoreScore(c.slaCm) * 100).toFixed(0) + '% warm-core bonus' : 'none (not on a warm core)'}<br>` +
         `Frontal strain: ${c.strainAvailable ? c.strain.toFixed(2) + '/day (proxy)' : 'no data'}<br>` +
-        `Current: ${c.speed.toFixed(2)} kt<br>` +
+        `Current: ${c.curScore != null ? c.speed.toFixed(2) + ' kt' : 'no data (source unavailable)'}<br>` +
         `${weatherLine}<br>` +
         `<span style="color:var(--dim)">Possible: ${suggestSpecies(c.depth, c.temp)}</span>`,
         {className: 'of-glass-popup'}
@@ -1972,9 +2007,14 @@ async function updateHotspots(bounds) {
     });
 
     const extremeCount = weatherByPick.filter(([wind, swell]) => (wind && wind.speedKmh >= EXTREME_WIND_KMH) || (swell && swell.heightM >= EXTREME_SWELL_M)).length;
+    // Surfaces a degraded (but not fully failed) run — e.g. SLA down during
+    // a NOAA outage while SST/depth/currents still responded — so results
+    // don't silently look like a normal full-signal run.
+    const degraded = [!sla && 'SLA', !current && 'currents', !chl && 'Chl-a'].filter(Boolean);
+    const degradedNote = degraded.length ? ` (${degraded.join('/')} unavailable — scoring adjusted)` : '';
     setStatus(picked.length
-      ? `Hotspot finder: found ${picked.length} candidate zone${picked.length > 1 ? 's' : ''}${extremeCount ? ` (${extremeCount} ⚠ extreme conditions)` : ''} — click a marker for details`
-      : 'Hotspot finder: no strong combined signal in this view');
+      ? `Hotspot finder: found ${picked.length} candidate zone${picked.length > 1 ? 's' : ''}${extremeCount ? ` (${extremeCount} ⚠ extreme conditions)` : ''}${degradedNote} — click a marker for details`
+      : `Hotspot finder: no strong combined signal in this view${degradedNote}`);
   } catch (err) {
     if (myReqId !== hotspotReqId) return;
     console.log('OceanFishy hotspot analysis failed:', err.message);
