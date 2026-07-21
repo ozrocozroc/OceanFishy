@@ -356,8 +356,11 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   /* The header (title + coords + weather-icon summary + two model
      dropdowns) was wrapping into 3 stacked rows on a narrow screen, eating
      most of the panel's already-tight 33vh before the actual hourly grid —
-     the whole point of the panel — even started, so both are hidden on
+     the whole point of the panel — even started, so all three are hidden on
      mobile now (not just shrunk) to claw that room back for actual rows:
+     - fc-title ("Forecast") is redundant — the panel is only ever open
+       because the user just tapped a point/pressed the Forecast button, and
+       the ✕ close button next to it already makes clear what closes.
      - fc-coords duplicates the Live Readings coordinate line in the
        sidebar, which is already refreshed to the same lat/lng the instant
        the forecast panel opens (see openForecastPanel's updateLiveReadings
@@ -368,7 +371,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
        (the orange scrub-position line) spans the FULL grid height, not just
        the header, so it still marks the current column against Wave/Swell/
        Tide once scrolled down to them. The numeric duplicate isn't needed. */
-  #forecast-panel #fc-summary,#forecast-panel #fc-coords{display:none}
+  #forecast-panel #fc-summary,#forecast-panel #fc-coords,#forecast-panel #fc-title{display:none}
   #forecast-panel > div:first-child{padding:6px 8px;gap:6px 8px;flex-wrap:wrap}
   /* The wave-model dropdown in particular shows full option text like
      "ECMWF WAM 9km (recommended)" — at ~194px wide with flex-shrink:0 and
@@ -614,7 +617,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
   <div id="forecast-panel" style="display:none;position:absolute;left:8px;bottom:8px;z-index:1100;background:rgba(11,19,32,.4);border:1px solid var(--bdrs);border-radius:10px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:calc(100% - 16px);min-width:min(480px, calc(100% - 16px));flex-direction:column">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--bdr);flex-shrink:0">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span style="font-size:13px;font-weight:700">Forecast</span>
+        <span id="fc-title" style="font-size:13px;font-weight:700">Forecast</span>
         <span style="font-size:10px;color:var(--dim)" id="fc-coords"></span>
         <span id="fc-summary" style="font-size:11px;align-items:center;gap:8px"></span>
       </div>
@@ -3267,7 +3270,11 @@ function renderForecastPanel(wx, marine) {
     // no further conversion needed to read the correct local weekday/date.
     const [gy, gm, gday] = g.day.split('-').map(Number);
     const d = new Date(gy, gm - 1, gday);
-    dayRow += `<div style="grid-column:span ${g.count};font-size:13px;font-weight:600;padding:${compact?'4px 0 4px 3px':'7px 0 7px 4px'};border-left:1px solid var(--bdr)">${dowFull[d.getDay()]} ${d.getDate()}</div>`;
+    // Weekend (Sat/Sun) days get the brand accent so a multi-day scroll
+    // reads as a calendar at a glance — genuinely useful for planning a trip
+    // around a Saturday/Sunday without having to count day names.
+    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+    dayRow += `<div style="grid-column:span ${g.count};font-size:13px;font-weight:600;padding:${compact?'4px 0 4px 3px':'7px 0 7px 4px'};border-left:1px solid var(--bdr);${isWeekend ? 'background:rgba(42,159,214,.18);color:var(--acc);' : ''}">${dowFull[d.getDay()]} ${d.getDate()}</div>`;
   });
 
   let hourRow = label('Hour');
