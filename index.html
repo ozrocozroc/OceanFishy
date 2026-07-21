@@ -1940,7 +1940,7 @@ async function updateHotspots(bounds) {
         `Chl-a: ${c.chlAvailable ? c.chlMgm3.toFixed(2) + ' mg/m³, front strength ' + c.chlGrad.toFixed(2) + ' (log10 scale)/cell' : 'no data (cloud/glint — common near coast)'}<br>` +
         `Depth: ${c.depth.toFixed(0)}m (Δ${c.depthGrad.toFixed(0)}m to nearest cell — canyon/shelf-edge signal)<br>` +
         `SLA: ${c.slaCm >= 0 ? '+' : ''}${c.slaCm.toFixed(0)}cm, front strength ${(c.slaGrad * 100).toFixed(1)}cm/cell<br>` +
-        `Frontal strain: ${c.strainAvailable ? c.strain.toFixed(2) + '/day (convergence proxy, not real FSLE)' : 'no data (edge of fetched area)'}<br>` +
+        `Frontal strain: ${c.strainAvailable ? c.strain.toFixed(2) + '/day (proxy)' : 'no data'}<br>` +
         `Current: ${c.speed.toFixed(2)} kt<br>` +
         `${weatherLine}<br>` +
         `<span style="color:var(--dim)">Possible: ${suggestSpecies(c.depth, c.temp)}</span>`,
