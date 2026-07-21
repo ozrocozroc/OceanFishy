@@ -373,16 +373,17 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
        Tide once scrolled down to them. The numeric duplicate isn't needed. */
   #forecast-panel #fc-summary,#forecast-panel #fc-coords,#forecast-panel #fc-title{display:none}
   #forecast-panel > div:first-child{padding:6px 8px;gap:6px 8px;flex-wrap:wrap}
-  /* The wave-model dropdown in particular shows full option text like
-     "ECMWF WAM 9km (recommended)" — at ~194px wide with flex-shrink:0 and
-     no wrap on its container, the pair of dropdowns didn't just take extra
-     height, they overflowed the panel's width outright and pushed the ✕
-     close button off past the visible edge, off-screen and unreachable
-     without horizontal scroll. Capping both dropdowns' width (native
-     <select> truncates the displayed value automatically, full text still
-     in the option list and the title tooltip) and letting the header's
-     right-hand group wrap fixes both the overflow and the wasted height. */
-  #fc-weather-model,#fc-model{max-width:78px;font-size:9px;padding:3px 4px}
+  /* Both model pickers dropped on mobile too, not just shrunk — they were
+     also the header-wrapping culprit (full option text like "ECMWF WAM 9km
+     (recommended)" at ~194px wide pushed the ✕ close button off-screen
+     before this). The weather model already defaults to Best match; the
+     wave model defaults to ecmwf_wam specifically because Best match
+     under-reads wave height ~15-30% (see MARINE_WAVE_MODELS comment), so
+     mobile users still get the more accurate default either way — this
+     only removes the ability to override it from a phone. Whatever was
+     last picked on desktop still applies (same localStorage), so nothing
+     resets, it just isn't changeable from here. */
+  #fc-weather-model,#fc-model{display:none}
   #forecast-panel > div:first-child > div:last-child{flex-wrap:wrap;gap:6px;row-gap:4px}
 }
 </style>
@@ -3270,11 +3271,11 @@ function renderForecastPanel(wx, marine) {
     // no further conversion needed to read the correct local weekday/date.
     const [gy, gm, gday] = g.day.split('-').map(Number);
     const d = new Date(gy, gm - 1, gday);
-    // Weekend (Sat/Sun) days get the brand accent so a multi-day scroll
-    // reads as a calendar at a glance — genuinely useful for planning a trip
+    // Weekend (Sat/Sun) days are highlighted red so a multi-day scroll reads
+    // as a calendar at a glance — genuinely useful for planning a trip
     // around a Saturday/Sunday without having to count day names.
     const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-    dayRow += `<div style="grid-column:span ${g.count};font-size:13px;font-weight:600;padding:${compact?'4px 0 4px 3px':'7px 0 7px 4px'};border-left:1px solid var(--bdr);${isWeekend ? 'background:rgba(42,159,214,.18);color:var(--acc);' : ''}">${dowFull[d.getDay()]} ${d.getDate()}</div>`;
+    dayRow += `<div style="grid-column:span ${g.count};font-size:${compact?11:12}px;font-weight:600;padding:${compact?'4px 0 4px 3px':'7px 0 7px 4px'};border-left:1px solid var(--bdr);${isWeekend ? 'background:rgba(232,87,58,.18);color:var(--sst);' : ''}">${dowFull[d.getDay()]} ${d.getDate()}</div>`;
   });
 
   let hourRow = label('Hour');
