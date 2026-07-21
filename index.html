@@ -1585,51 +1585,21 @@ async function fetchFsleProxyGrid(bounds, maxPts) {
     uGrid[idx.get('lat' + r[1])][idx.get('lon' + r[2])] = r[3];
     vGrid[idx.get('lat' + r[1])][idx.get('lon' + r[2])] = r[4];
   }
-  // The native grid is ~0.25° (~25km) — real, but coarse enough that
-  // painting one flat quad per native cell reads as big hard-edged blocks
-  // (reported directly). Bilinearly supersample u/v onto a denser lat/lon
-  // grid first (same interpolation sampleCurrentField already does per-
-  // particle for the Currents overlay, just applied to the whole grid here)
-  // before differencing — real current data throughout, just smoothly
-  // interpolated between real neighboring samples instead of held flat
-  // across each whole native cell, so quad edges blend instead of stepping.
-  const SUBDIV = 4;
-  const denseLat = [], denseLon = [];
-  for (let i = 0; i < latSet.length - 1; i++) {
-    for (let k = 0; k < SUBDIV; k++) denseLat.push(latSet[i] + (latSet[i+1] - latSet[i]) * k / SUBDIV);
-  }
-  if (latSet.length) denseLat.push(latSet[latSet.length - 1]);
-  for (let j = 0; j < lonSet.length - 1; j++) {
-    for (let k = 0; k < SUBDIV; k++) denseLon.push(lonSet[j] + (lonSet[j+1] - lonSet[j]) * k / SUBDIV);
-  }
-  if (lonSet.length) denseLon.push(lonSet[lonSet.length - 1]);
-
-  function bilerp(field, i0, j0, tLat, tLon) {
-    const a = field[i0][j0], b = field[i0][j0+1], c = field[i0+1][j0], d = field[i0+1][j0+1];
-    if (a == null || b == null || c == null || d == null) return null;
-    const top = a + (b - a) * tLon, bot = c + (d - c) * tLon;
-    return top + (bot - top) * tLat;
-  }
-  const uDense = Array.from({length: denseLat.length}, () => new Array(denseLon.length).fill(null));
-  const vDense = Array.from({length: denseLat.length}, () => new Array(denseLon.length).fill(null));
-  if (latSet.length >= 2 && lonSet.length >= 2) {
-    for (let di = 0; di < denseLat.length; di++) {
-      let i0 = Math.min(Math.floor(di / SUBDIV), latSet.length - 2);
-      const tLat = (denseLat[di] - latSet[i0]) / (latSet[i0+1] - latSet[i0]);
-      for (let dj = 0; dj < denseLon.length; dj++) {
-        let j0 = Math.min(Math.floor(dj / SUBDIV), lonSet.length - 2);
-        const tLon = (denseLon[dj] - lonSet[j0]) / (lonSet[j0+1] - lonSet[j0]);
-        uDense[di][dj] = bilerp(uGrid, i0, j0, tLat, tLon);
-        vDense[di][dj] = bilerp(vGrid, i0, j0, tLat, tLon);
-      }
-    }
-  }
-
-  // Border row/col has no far-side neighbor to difference against — stays
-  // null (transparent), same "can't compute, don't paint" convention every
-  // other missing-data cell in this app follows.
-  const grid = computeStrainGridPerDay(denseLat, denseLon, uDense, vDense);
-  return {latSet: denseLat, lonSet: denseLon, grid};
+  // The native grid is ~0.25° (~25km) — real, but coarse enough that a
+  // flat quad per native cell reads as big hard-edged blocks. That USED to
+  // be fixed here by bilinearly supersampling u/v onto a denser grid before
+  // differencing (~5000 tiny quads per redraw) — replaced once draw()
+  // switched to genuine per-quad bilinear blending (see hasAlpha in
+  // createCanvasRasterLayer), which smooths correctly straight off the
+  // native grid without needing thousands of pre-subdivided cells. Removed
+  // after that many small drawImage() calls per redraw turned out to render
+  // as a broken grid of disconnected squares on real mobile hardware
+  // (reported directly, not reproducible via desktop viewport resize —
+  // consistent with a mobile GPU/canvas-compositing limit on rapid tiny
+  // draws, not a math bug) — native-resolution quads cut the per-redraw
+  // draw call count by roughly 16x (SUBDIV was 4x4).
+  const grid = computeStrainGridPerDay(latSet, lonSet, uGrid, vGrid);
+  return {latSet, lonSet, grid};
 }
 
 // Shared by the Fronts proxy raster (on a bilinearly-supersampled grid, for
