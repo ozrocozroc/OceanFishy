@@ -1996,22 +1996,30 @@ if (!map.getPane(RASTER_PANE_NAME)) {
 function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid, hasAlpha) {
   let canvas = null, ctx = null, reqId = 0, gridCache = null;
 
-  // Reused across every quad in a hasAlpha draw() pass (see there) instead
-  // of allocating a fresh 2x2 canvas per quad — thousands of tiny canvas
-  // elements per redraw was the obvious alternative and needlessly slow.
-  let microCanvas = null, microCtx = null, microImg = null;
-  function ensureMicro() {
-    if (microCanvas) return;
-    microCanvas = document.createElement('canvas');
-    microCanvas.width = 2; microCanvas.height = 2;
-    microCtx = microCanvas.getContext('2d');
-    microImg = microCtx.createImageData(2, 2);
+  // A fresh 2x2 canvas per quad in a hasAlpha draw() pass (see there) — an
+  // earlier version reused ONE mutable micro-canvas across the whole pass
+  // (overwritten via putImageData before each drawImage) purely to avoid
+  // allocating thousands of tiny canvases. Reverted after the native-grid
+  // simplification (way fewer quads now, allocation cost is a non-issue)
+  // because that reuse is exactly the shape of a known class of WebKit bug:
+  // some Safari builds cache/stale-serve a canvas used as a drawImage
+  // source across rapid same-tick mutations, which reads as some quads
+  // painting a leftover texture instead of their real one — plausibly
+  // exactly the "broken grid of squares" reported on a real phone that a
+  // desktop/simulated browser couldn't reproduce. A canvas that's created,
+  // written once, and used once can't hit that bug.
+  function makeMicroTexture() {
+    const c = document.createElement('canvas');
+    c.width = 2; c.height = 2;
+    const cx = c.getContext('2d');
+    const img = cx.createImageData(2, 2);
+    return { c, cx, img };
   }
-  function setMicroPixel(idx, col) {
+  function setMicroPixel(img, idx, col) {
     const o = idx * 4;
-    if (!col) { microImg.data[o] = 0; microImg.data[o+1] = 0; microImg.data[o+2] = 0; microImg.data[o+3] = 0; return; }
-    microImg.data[o] = col[0]; microImg.data[o+1] = col[1]; microImg.data[o+2] = col[2];
-    microImg.data[o+3] = Math.round((col.length > 3 ? col[3] : 1) * 255);
+    if (!col) { img.data[o] = 0; img.data[o+1] = 0; img.data[o+2] = 0; img.data[o+3] = 0; return; }
+    img.data[o] = col[0]; img.data[o+1] = col[1]; img.data[o+2] = col[2];
+    img.data[o+3] = Math.round((col.length > 3 ? col[3] : 1) * 255);
   }
 
   function ensure() {
@@ -2081,8 +2089,6 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid, hasAlpha)
     // and a null (transparent) corner next to a real one now fades out
     // instead of cutting off hard.
     if (hasAlpha) {
-      ensureMicro();
-      microCtx.imageSmoothingEnabled = true;
       ctx.imageSmoothingEnabled = true;
       for (let i = 0; i < latSet.length - 1; i++) {
         for (let j = 0; j < lonSet.length - 1; j++) {
@@ -2097,8 +2103,9 @@ function createCanvasRasterLayer(layerKey, colorFn, maxPts, fetchGrid, hasAlpha)
           const y0 = Math.min(pNW.y, pNE.y) - origin.y, y1 = Math.max(pSW.y, pSE.y) - origin.y;
           const w = x1 - x0, h = y1 - y0;
           if (w <= 0 || h <= 0) continue;
-          setMicroPixel(0, cNW); setMicroPixel(1, cNE);
-          setMicroPixel(2, cSW); setMicroPixel(3, cSE);
+          const { c: microCanvas, cx: microCtx, img: microImg } = makeMicroTexture();
+          setMicroPixel(microImg, 0, cNW); setMicroPixel(microImg, 1, cNE);
+          setMicroPixel(microImg, 2, cSW); setMicroPixel(microImg, 3, cSE);
           microCtx.putImageData(microImg, 0, 0);
           ctx.drawImage(microCanvas, x0, y0, w, h);
         }
