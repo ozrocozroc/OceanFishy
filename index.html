@@ -1915,8 +1915,8 @@ async function updateHotspots(bounds) {
     // getRealWind/getRealSwell point-fetches Live Readings already uses.
     // View-only per user request: still shown and clickable, just badged
     // and captioned as a no-go rather than hidden from the map. Thresholds
-    // tuned per user (lowered from an initial 54km/h/3m).
-    const EXTREME_WIND_KMH = 40, EXTREME_SWELL_M = 2.5;
+    // tuned per user (54km/h/3m -> 40km/h/2.5m -> 35km/h/2m).
+    const EXTREME_WIND_KMH = 35, EXTREME_SWELL_M = 2;
     const weatherByPick = await Promise.all(picked.map(c => Promise.all([
       getRealWind(c.lat, c.lon).catch(() => null),
       getRealSwell(c.lat, c.lon).catch(() => null),
