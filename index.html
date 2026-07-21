@@ -353,38 +353,39 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
      viewport, not what's actually visible once the address bar is shown. */
   #forecast-panel{max-height:33vh;max-height:33dvh}
 
-  /* The header (title + coords + weather-icon summary + two model
-     dropdowns) was wrapping into 3 stacked rows on a narrow screen, eating
-     most of the panel's already-tight 33vh before the actual hourly grid —
-     the whole point of the panel — even started, so all three are hidden on
-     mobile now (not just shrunk) to claw that room back for actual rows:
-     - fc-title ("Forecast") is redundant — the panel is only ever open
-       because the user just tapped a point/pressed the Forecast button, and
-       the ✕ close button next to it already makes clear what closes.
-     - fc-coords duplicates the Live Readings coordinate line in the
-       sidebar, which is already refreshed to the same lat/lng the instant
-       the forecast panel opens (see openForecastPanel's updateLiveReadings
-       call) — nothing lost by not repeating it here too.
-     - fc-summary duplicates numbers already visible in the grid's own rows
-       *while that hour's column is on screen*, and was originally kept as
-       the only live readout once you scroll past the header — but #fc-cursor
-       (the orange scrub-position line) spans the FULL grid height, not just
-       the header, so it still marks the current column against Wave/Swell/
-       Tide once scrolled down to them. The numeric duplicate isn't needed. */
-  #forecast-panel #fc-summary,#forecast-panel #fc-coords,#forecast-panel #fc-title{display:none}
-  #forecast-panel > div:first-child{padding:6px 8px;gap:6px 8px;flex-wrap:wrap}
-  /* Both model pickers dropped on mobile too, not just shrunk — they were
-     also the header-wrapping culprit (full option text like "ECMWF WAM 9km
-     (recommended)" at ~194px wide pushed the ✕ close button off-screen
-     before this). The weather model already defaults to Best match; the
-     wave model defaults to ecmwf_wam specifically because Best match
-     under-reads wave height ~15-30% (see MARINE_WAVE_MODELS comment), so
-     mobile users still get the more accurate default either way — this
-     only removes the ability to override it from a phone. Whatever was
-     last picked on desktop still applies (same localStorage), so nothing
-     resets, it just isn't changeable from here. */
-  #fc-weather-model,#fc-model{display:none}
-  #forecast-panel > div:first-child > div:last-child{flex-wrap:wrap;gap:6px;row-gap:4px}
+  /* The header (title + coords + weather-icon summary + two model dropdowns
+     + close button) was wrapping into 3 stacked rows on a narrow screen,
+     eating most of the panel's already-tight 33vh before the actual hourly
+     grid — the whole point of the panel — even started. Every element in it
+     turned out to be droppable on mobile, so the whole bar is now removed
+     rather than incrementally shrunk:
+     - fc-title ("Forecast"), fc-coords, fc-summary: see the mobile
+       #forecast-panel rules that removed each individually — title is
+       redundant once the panel's open, coords duplicates Live Readings
+       (synced to the same lat/lng on open), summary duplicates numbers
+       already in the grid rows and #fc-cursor already tracks the current
+       column through the full grid height regardless.
+     - fc-weather-model / fc-model: dropped instead of just shrunk (they
+       were also the original wrapping culprit — full option text like
+       "ECMWF WAM 9km (recommended)" at ~194px wide). Weather already
+       defaults to Best match; wave defaults to ecmwf_wam specifically
+       because Best match under-reads wave height ~15-30% (see
+       MARINE_WAVE_MODELS comment), so mobile still gets the more accurate
+       default, it just can't be changed from here — whatever was last
+       picked on desktop still applies via the shared localStorage setting.
+     - fc-close (✕): redundant with the toolbar's own Forecast button
+       (#b-forecast), which already fully closes the panel when tapped
+       again — see toggleForecastMode(), same panel-hide/cursor-reset/
+       status-clear as closeForecastPanel(). That button stays visible on
+       mobile (it's in the top toolbar, not a drawer), so the close
+       affordance isn't actually lost.
+     With nothing left inside it, the header bar itself is hidden rather
+     than left as an empty padded strip. */
+  /* !important is required here — the element carries an inline
+     style="display:flex;…" (set in markup, not toggled by JS), which always
+     wins over an external stylesheet rule regardless of selector
+     specificity; a plain override silently does nothing. */
+  #forecast-panel > div:first-child{display:none!important}
 }
 </style>
 </head>
@@ -637,7 +638,7 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
           <option value="meteofrance_wave">Météo-France Wave</option>
           <option value="gwam">DWD GWAM (global)</option>
         </select>
-        <span style="cursor:pointer;color:var(--dim);font-size:16px;line-height:1;padding:2px 6px" onclick="closeForecastPanel()">✕</span>
+        <span id="fc-close" style="cursor:pointer;color:var(--dim);font-size:16px;line-height:1;padding:2px 6px" onclick="closeForecastPanel()">✕</span>
       </div>
     </div>
     <div id="fc-body" style="overflow:auto;flex:1">
