@@ -1919,6 +1919,19 @@ async function updateHotspots(bounds) {
     const maxChlClearSide = Math.max(...candidates.filter(c => c.chlAvailable).map(c => Math.max(0, c.chlClearSide)), 0);
     const maxStrain       = Math.max(...candidates.filter(c => c.strainAvailable).map(c => c.strain), 0);
     const gameSeasons     = activeGameSeasons(new Date().getMonth());
+    // The MOST weight this run can possibly score, given which SOURCES
+    // responded at all — constant across every candidate (unlike the
+    // per-candidate weightSum below, which also varies with per-cell gaps
+    // like Chl cloud cover). Used to cap the displayed score so a run
+    // missing whole signal categories (SLA/current/Chl-a source outage)
+    // can't get rescaled back up to look like a full-confidence 82/100 —
+    // see the user-reported issue this fixes: an SST+depth-only run was
+    // showing scores as high as a full 7-signal run, which is misleading
+    // even though the RELATIVE ranking within that run was still valid.
+    const sourceWeightCap = WEIGHTS.sst + WEIGHTS.depth
+      + (sla ? WEIGHTS.sla + WEIGHTS.eddyCore : 0)
+      + (current ? WEIGHTS.current + WEIGHTS.strain : 0)
+      + (chl ? WEIGHTS.chl : 0);
     candidates.forEach(c => {
       // Missing Chl/strain/SLA/current redistributes its weight across
       // whichever signals ARE present instead of just scoring 0 for that
@@ -1944,13 +1957,22 @@ async function updateHotspots(bounds) {
       if (c.strainAvailable) named.strain = [WEIGHTS.strain, maxStrain ? c.strain / maxStrain : 0];
       const parts = Object.values(named);
       const weightSum = parts.reduce((s, [w]) => s + w, 0);
-      c.score = parts.reduce((s, [w, val]) => s + w * val, 0) / weightSum;
-      // Points earned out of each signal's own max-possible weight (rescaled
-      // by the same weightSum normalization as the overall score), so the
-      // popup can show e.g. "SST 24/28" alongside the total — which signal
-      // actually drove this candidate's ranking, not just the final number.
+      // rawScore (0..1) is renormalized against THIS candidate's own
+      // weightSum — fair when the gap is per-cell noise (cloud over this
+      // one point), so a candidate under cloud isn't penalized relative to
+      // a clear-sky candidate nearby. c.score then scales that back down by
+      // sourceWeightCap (constant for the whole run) so a run missing whole
+      // signal categories is honestly capped, not rescaled up to 100.
+      // Multiplying every candidate by the same constant doesn't change
+      // sort order, so ranking stays correct either way.
+      const rawScore = parts.reduce((s, [w, val]) => s + w * val, 0) / weightSum;
+      c.score = rawScore * sourceWeightCap;
+      c.sourceWeightCap = sourceWeightCap;
+      // Points earned out of each signal's own max-possible weight (same
+      // rawScore renormalization, then scaled by sourceWeightCap so these
+      // sum to c.score rather than always summing to 100).
       c.contributions = Object.fromEntries(
-        Object.entries(named).map(([k, [w, val]]) => [k, {earned: (w * val / weightSum) * 100, max: (w / weightSum) * 100}])
+        Object.entries(named).map(([k, [w, val]]) => [k, {earned: (w * val / weightSum) * sourceWeightCap * 100, max: (w / weightSum) * sourceWeightCap * 100}])
       );
     });
     candidates.sort((a, b) => b.score - a.score);
@@ -1989,7 +2011,7 @@ async function updateHotspots(bounds) {
         .join(' · ');
       const weatherLine = `Wind: ${wind ? Math.round(wind.speedKmh) + ' km/h' : 'n/a'} · Swell: ${swell ? swell.heightM.toFixed(1) + ' m' : 'n/a'}`;
       L.marker([c.lat, c.lon], {icon: hotspotIcon(i + 1, extreme)}).addTo(hotspotGroup).bindPopup(
-        `<b>🎯 Hotspot #${i + 1} — score ${(c.score * 100).toFixed(0)}/100</b>` +
+        `<b>🎯 Hotspot #${i + 1} — score ${(c.score * 100).toFixed(0)}/100${c.sourceWeightCap < 0.999 ? ` (capped at ${(c.sourceWeightCap * 100).toFixed(0)} — some sources unavailable)` : ''}</b>` +
         (extreme ? `<br><b style="color:#ff6b6b">⚠ EXTREME CONDITIONS — no-go right now</b>` : '') + `<br>` +
         `${formatCoordDMM(c.lat, c.lon)} · ${c.shoreDistKm.toFixed(0)}km from shore<br>` +
         `<span style="font-size:10px;color:var(--dim)">${breakdown}</span><br>` +
