@@ -1340,6 +1340,15 @@ async function updateContours(dateToUse, bounds) {
   } catch (err) {
     if (myReqId !== contourReqId) return;
     console.log('OceanFishy contour fetch failed:', err.message);
+    // Previously silent (console.log only) — from the user's side this
+    // looked exactly like "the SLA overlay just doesn't display," with no
+    // indication anything had gone wrong or why, easily mistaken for a
+    // missing prerequisite (e.g. needing the Altimetry ocean layer loaded
+    // first, which this is actually fully independent of — see the comment
+    // on showContours in loadOceanLayer). Same coastwatch.noaa.gov +
+    // CORS-proxy chain as the hotspot finder, so the same intermittent
+    // proxy flakiness applies here too — now at least visible.
+    setStatus('SLA overlay unavailable right now — data source didn’t respond. Try toggling it off and on again.');
   }
 }
 
