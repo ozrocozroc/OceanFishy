@@ -1191,6 +1191,18 @@ function marchingSquares(grid, lats, lons, level) {
 // any code change on our end, exactly the risk of depending on a single free
 // third-party service. No proxy here is trustworthy alone, so try each in
 // order and only fail if all of them do.
+// Confirmed directly (2026-08-05, all 3 above briefly down at once — see
+// hotspot-scoring investigation): the NOAA server itself (coastwatch.noaa.gov
+// specifically, host for SLA/Chl/currents) was completely healthy the whole
+// time (status.html: normal load, 0 requests shed, no active announcement)
+// — it was r.jina.ai returning 422 ("Download is starting", its headless
+// scraper choking specifically on that host's response) plus corsproxy.io
+// (403, unrelated to host) and codetabs (521) all failing simultaneously.
+// cors.eu.org (4th fallback below) was tested directly against BOTH NOAA
+// hosts and turned out to have the OPPOSITE host-specific gap from
+// r.jina.ai — fails on coastwatch.pfeg.noaa.gov (403, used by SST/depth) but
+// succeeds consistently on coastwatch.noaa.gov (SLA/Chl/currents), so it
+// specifically covers the host that was down when this was added.
 // A hung connection (no response at all, not even an error) would otherwise
 // block an attempt indefinitely and never reach the next proxy in the chain.
 function fetchWithTimeout(url, timeoutMs) {
@@ -1227,6 +1239,18 @@ async function fetchJsonViaCorsProxy(target) {
       // one down.
       const resp = await fetchWithTimeout('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target), 9000);
       if (!resp.ok) throw new Error('codetabs: ' + resp.status);
+      return resp.json();
+    },
+    async () => {
+      // Fourth fallback — see the dated comment above this function: added
+      // specifically because it has the opposite per-host failure pattern
+      // from r.jina.ai (works on coastwatch.noaa.gov, fails on
+      // coastwatch.pfeg.noaa.gov), so between the two, both NOAA hosts stay
+      // covered even if corsproxy.io/codetabs are also down. Path-style
+      // (target appended directly, not query-encoded), and returns the raw
+      // upstream response with no wrapper.
+      const resp = await fetchWithTimeout('https://cors.eu.org/' + target, 9000);
+      if (!resp.ok) throw new Error('cors.eu.org: ' + resp.status);
       return resp.json();
     },
   ];
