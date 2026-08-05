@@ -1211,7 +1211,44 @@ function fetchWithTimeout(url, timeoutMs) {
   return fetch(url, {signal: ctrl.signal}).finally(() => clearTimeout(t));
 }
 
+// Global concurrency limiter for fetchJsonViaCorsProxy — confirmed directly
+// (2026-08-05): toggling an overlay (SLA/Depth/Currents) together with the
+// hotspot finder fires up to 8 concurrent requests app-wide, several of
+// which land on the SAME host (coastwatch.noaa.gov) and therefore the SAME
+// proxy (cors.eu.org is currently the only one of the 4 that reliably
+// serves that host — see the dated comment below). All 8 firing at once
+// tripped cors.eu.org's own rate limit ("cors.eu.org: 429" on 5 of the 8),
+// which looked like "one of them is bound to fail" whenever multiple
+// overlays + hotspots were active together, even though each individual
+// fetch is perfectly capable of succeeding on its own. This isn't a
+// per-host or per-dataset problem — it only shows up under concurrent load
+// — so the fix is a simple global queue rather than touching any one
+// fetchHotspot*/update* caller: at most CORS_PROXY_MAX_CONCURRENT requests
+// are ever in flight across the whole app at once, the rest wait in a FIFO
+// queue for a slot instead of bursting and getting rate-limited.
+const CORS_PROXY_MAX_CONCURRENT = 3;
+let corsProxyActive = 0;
+const corsProxyQueue = [];
+function corsProxyAcquireSlot() {
+  if (corsProxyActive < CORS_PROXY_MAX_CONCURRENT) { corsProxyActive++; return Promise.resolve(); }
+  return new Promise(resolve => corsProxyQueue.push(resolve));
+}
+function corsProxyReleaseSlot() {
+  corsProxyActive--;
+  const next = corsProxyQueue.shift();
+  if (next) { corsProxyActive++; next(); }
+}
+
 async function fetchJsonViaCorsProxy(target) {
+  await corsProxyAcquireSlot();
+  try {
+    return await fetchJsonViaCorsProxyInner(target);
+  } finally {
+    corsProxyReleaseSlot();
+  }
+}
+
+async function fetchJsonViaCorsProxyInner(target) {
   const attempts = [
     async () => {
       const resp = await fetchWithTimeout('https://corsproxy.io/?url=' + encodeURIComponent(target), 9000);
