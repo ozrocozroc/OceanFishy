@@ -1395,6 +1395,14 @@ async function updateDepthContours(bounds) {
   } catch (err) {
     if (myReqId !== depthContourReqId) return;
     console.log('OceanFishy depth contour fetch failed:', err.message);
+    // Same silent-failure gap the SLA contour overlay had — console.log only
+    // told the user nothing went wrong, the overlay just looked like it
+    // "didn't display." This fetch goes through fetchHotspotBathyGrid, which
+    // hits coastwatch.pfeg.noaa.gov (a different NOAA host than SLA/Chl/
+    // currents, so not necessarily affected by the same outage, but still
+    // routed through the same CORS-proxy chain and just as capable of
+    // failing on its own).
+    setStatus('Depth overlay unavailable right now — data source didn’t respond. Try toggling it off and on again.');
   }
 }
 
