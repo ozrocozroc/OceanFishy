@@ -221,9 +221,16 @@ select.hsel{background:var(--surf2);border:1px solid var(--bdrs);color:var(--txt
 .spin{width:14px;height:14px;border:2px solid var(--bdrs);border-top-color:var(--acc);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* Status */
-#status{position:absolute;bottom:26px;left:10px;z-index:900;background:rgba(18,28,46,.4);backdrop-filter:blur(6px);border:1px solid var(--bdrs);border-radius:var(--r);padding:5px 10px;font-size:11px;color:var(--mut);display:none;max-width:320px;line-height:1.4}
-#status.show{display:block}
+/* Status — a stack of independently auto-dismissing toasts (see setStatus()
+   in the script below), not a single overwritten box. column-reverse so
+   newly-appended toasts land at the bottom (right above the map's bottom
+   edge, where the old single box always was) and older ones stack upward
+   above them, newest-at-bottom like most notification stacks. Empty when
+   idle, so it takes zero layout space and never blocks clicks underneath —
+   pointer-events re-enabled per-toast below so each is still closable. */
+#status{position:absolute;bottom:26px;left:10px;z-index:900;display:flex;flex-direction:column-reverse;gap:4px;max-width:320px;pointer-events:none}
+#status .status-toast{background:rgba(18,28,46,.4);backdrop-filter:blur(6px);border:1px solid var(--bdrs);border-radius:var(--r);padding:5px 10px;font-size:11px;color:var(--mut);line-height:1.4;pointer-events:auto;animation:statusIn .15s ease}
+@keyframes statusIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 
 /* Source bar */
 #src{position:absolute;bottom:0;left:0;right:0;z-index:900;background:rgba(11,19,32,.4);border-top:1px solid var(--bdr);padding:3px 14px;font-size:10px;color:var(--dim);backdrop-filter:blur(6px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -3776,7 +3783,17 @@ function placeClickMark(lat, lng) {
   // fetch (SLA/Depth/Current) resolves, the same way it streams into the
   // #live-* sidebar spans. Sidebar panel is untouched/still populated in
   // parallel; nothing removed yet, this is additive for comparison.
-  clickMark.bindPopup('…', {className: 'of-glass-popup', autoPan: false}).openPopup();
+  // offset pushes the popup well above the marker — a Known Mark's own
+  // hover tooltip (bindTooltip, direction:'top' on the mark's own marker in
+  // renderMarkers()) anchors at the SAME point, and clicking a mark forwards
+  // here (see handleMapClick), so without this the two directly overlapped:
+  // confirmed via getBoundingClientRect, the popup's bottom edge sat 61px
+  // INSIDE the tooltip's box, fully covering the mark's name/depth/species
+  // label the instant you clicked it. -85px clears a typical 3-line tooltip
+  // with comfortable margin; applies to every click (mark or bare map
+  // point) for consistent placement rather than only when a mark happens to
+  // be underneath.
+  clickMark.bindPopup('…', {className: 'of-glass-popup', autoPan: false, offset: [0, -85]}).openPopup();
 }
 
 // Rebuilds the click-popup content from whatever's currently in the
@@ -4960,10 +4977,46 @@ function showSpinner(v,txt) {
   document.getElementById('spinner').classList.toggle('show',v);
   if (txt) document.getElementById('spin-txt').textContent = txt;
 }
+// Was a single box whose text got clobbered by whatever called setStatus()
+// last — with several independent features (overlays, hotspots, forecast,
+// currents) each firing their own status on success/failure, a second
+// message arriving before the first was done being read just silently
+// erased it, so "only one message shown" even though multiple things had
+// something to say. Now a capped, auto-dismissing stack: each call with a
+// real message adds its OWN toast rather than overwriting anyone else's.
+// The pre-existing setStatus('') convention (many call sites clear their
+// OWN message the instant their operation succeeds, rather than waiting
+// for the auto-dismiss timer) is preserved by treating '' as "close the
+// most recently added toast early" — in practice every real call site's
+// success/failure pair fires close enough together for this to match the
+// right toast almost always, without having to thread a key through all
+// 40+ existing call sites.
+const STATUS_MAX_VISIBLE = 4;      // keeps the stack tidy under a burst (e.g. several overlays failing together)
+const STATUS_AUTO_DISMISS_MS = 7000;
+const statusToasts = [];
 function setStatus(msg) {
-  const el = document.getElementById('status');
+  const container = document.getElementById('status');
+  if (!msg) {
+    const last = statusToasts.pop();
+    if (last) { clearTimeout(last.timer); last.el.remove(); }
+    return;
+  }
+  const el = document.createElement('div');
+  el.className = 'status-toast';
   el.textContent = msg;
-  el.classList.toggle('show', !!msg);
+  container.appendChild(el);
+  const entry = { el, timer: null };
+  entry.timer = setTimeout(() => {
+    el.remove();
+    const idx = statusToasts.indexOf(entry);
+    if (idx >= 0) statusToasts.splice(idx, 1);
+  }, STATUS_AUTO_DISMISS_MS);
+  statusToasts.push(entry);
+  while (statusToasts.length > STATUS_MAX_VISIBLE) {
+    const oldest = statusToasts.shift();
+    clearTimeout(oldest.timer);
+    oldest.el.remove();
+  }
 }
 
 // Mobile drawer: sidebar is off-canvas below 640px, toggled via #sb-toggle
