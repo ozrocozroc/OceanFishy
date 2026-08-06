@@ -1248,53 +1248,102 @@ async function fetchJsonViaCorsProxy(target) {
   }
 }
 
+// Per-proxy circuit breaker with exponential backoff. Confirmed directly
+// (2026-08-07): cors.eu.org's 429 does NOT clear within seconds (still 429
+// after an 8s manual wait, no Retry-After header returned), so retrying a
+// proxy that JUST failed on every subsequent request both burns that
+// attempt's 9s timeout budget for nothing and keeps hammering an
+// already-struggling free service — poor etiquette, and the more likely
+// path from "temporarily rate-limited" to an actual harder/longer block.
+// Every proxy failure records a cooldown that DOUBLES per consecutive
+// failure (capped at 5 min) and resets the moment that proxy succeeds
+// again — so a proxy that's down gets skipped for a while, but recovers
+// automatically without needing a page reload. If every proxy happens to
+// be in cooldown at once, none are skipped for that one request — better
+// to actually try (one may have recovered early) than fail outright with
+// zero network calls off a possibly-stale local guess.
+const CORS_PROXY_BASE_COOLDOWN_MS = 15000;    // 15s
+const CORS_PROXY_MAX_COOLDOWN_MS = 5 * 60000; // capped at 5 min
+const corsProxyCooldownUntil = {};
+const corsProxyFailStreak = {};
+function corsProxyRecordFailure(name) {
+  corsProxyFailStreak[name] = (corsProxyFailStreak[name] || 0) + 1;
+  const cooldown = Math.min(CORS_PROXY_BASE_COOLDOWN_MS * (2 ** (corsProxyFailStreak[name] - 1)), CORS_PROXY_MAX_COOLDOWN_MS);
+  corsProxyCooldownUntil[name] = Date.now() + cooldown;
+}
+function corsProxyRecordSuccess(name) {
+  corsProxyFailStreak[name] = 0;
+  corsProxyCooldownUntil[name] = 0;
+}
+
 async function fetchJsonViaCorsProxyInner(target) {
   const attempts = [
-    async () => {
-      const resp = await fetchWithTimeout('https://corsproxy.io/?url=' + encodeURIComponent(target), 9000);
-      if (!resp.ok) throw new Error('corsproxy.io: ' + resp.status);
-      return resp.json();
+    {
+      name: 'corsproxy.io',
+      run: async () => {
+        const resp = await fetchWithTimeout('https://corsproxy.io/?url=' + encodeURIComponent(target), 9000);
+        if (!resp.ok) throw new Error('corsproxy.io: ' + resp.status);
+        return resp.json();
+      },
     },
-    async () => {
+    {
+      name: 'r.jina.ai',
       // r.jina.ai is a content-reader service, not a purpose-built proxy —
       // it wraps the real response in "Title/URL Source/..." text ahead of a
       // "Markdown Content:" marker, so the JSON has to be extracted out.
-      const resp = await fetchWithTimeout('https://r.jina.ai/' + target, 9000);
-      if (!resp.ok) throw new Error('r.jina.ai: ' + resp.status);
-      const text = await resp.text();
-      const marker = 'Markdown Content:';
-      const idx = text.lastIndexOf(marker);
-      const body = idx >= 0 ? text.slice(idx + marker.length) : text;
-      const braceIdx = body.indexOf('{');
-      if (braceIdx < 0) throw new Error('r.jina.ai: no JSON found in response');
-      return JSON.parse(body.slice(braceIdx));
+      run: async () => {
+        const resp = await fetchWithTimeout('https://r.jina.ai/' + target, 9000);
+        if (!resp.ok) throw new Error('r.jina.ai: ' + resp.status);
+        const text = await resp.text();
+        const marker = 'Markdown Content:';
+        const idx = text.lastIndexOf(marker);
+        const body = idx >= 0 ? text.slice(idx + marker.length) : text;
+        const braceIdx = body.indexOf('{');
+        if (braceIdx < 0) throw new Error('r.jina.ai: no JSON found in response');
+        return JSON.parse(body.slice(braceIdx));
+      },
     },
-    async () => {
+    {
+      name: 'codetabs',
       // Third fallback — a different service, different failure modes
       // (bot-detection, rate limits) than the two above, so a failure that
       // takes both of them down at once is less likely to also take this
       // one down.
-      const resp = await fetchWithTimeout('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target), 9000);
-      if (!resp.ok) throw new Error('codetabs: ' + resp.status);
-      return resp.json();
+      run: async () => {
+        const resp = await fetchWithTimeout('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target), 9000);
+        if (!resp.ok) throw new Error('codetabs: ' + resp.status);
+        return resp.json();
+      },
     },
-    async () => {
-      // Fourth fallback — see the dated comment above this function: added
-      // specifically because it has the opposite per-host failure pattern
-      // from r.jina.ai (works on coastwatch.noaa.gov, fails on
+    {
+      name: 'cors.eu.org',
+      // Fourth fallback — see the dated comment above fetchWithTimeout:
+      // added specifically because it has the opposite per-host failure
+      // pattern from r.jina.ai (works on coastwatch.noaa.gov, fails on
       // coastwatch.pfeg.noaa.gov), so between the two, both NOAA hosts stay
       // covered even if corsproxy.io/codetabs are also down. Path-style
       // (target appended directly, not query-encoded), and returns the raw
       // upstream response with no wrapper.
-      const resp = await fetchWithTimeout('https://cors.eu.org/' + target, 9000);
-      if (!resp.ok) throw new Error('cors.eu.org: ' + resp.status);
-      return resp.json();
+      run: async () => {
+        const resp = await fetchWithTimeout('https://cors.eu.org/' + target, 9000);
+        if (!resp.ok) throw new Error('cors.eu.org: ' + resp.status);
+        return resp.json();
+      },
     },
   ];
+  const now = Date.now();
+  const allInCooldown = attempts.every(a => (corsProxyCooldownUntil[a.name] || 0) > now);
   let lastErr;
-  for (const attempt of attempts) {
-    try { return await attempt(); }
-    catch (err) { lastErr = err; }
+  for (const { name, run } of attempts) {
+    if (!allInCooldown && (corsProxyCooldownUntil[name] || 0) > now) continue;
+    try {
+      const result = await run();
+      corsProxyRecordSuccess(name);
+      return result;
+    } catch (err) {
+      corsProxyRecordFailure(name);
+      lastErr = err;
+    }
   }
   throw lastErr || new Error('all CORS proxies failed');
 }
