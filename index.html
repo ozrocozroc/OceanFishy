@@ -1226,10 +1226,21 @@ function fetchWithTimeout(url, timeoutMs) {
 // fetchHotspot*/update* caller: at most CORS_PROXY_MAX_CONCURRENT requests
 // are ever in flight across the whole app at once, the rest wait in a FIFO
 // queue for a slot instead of bursting and getting rate-limited.
-const CORS_PROXY_MAX_CONCURRENT = 3;
+// A bare concurrency cap alone still lets requests fire back-to-back the
+// instant a slot frees up — throttling, not pacing. NOAA/ERDDAP good-
+// practice guidance ("run loops with a slight delay between API calls")
+// calls for actual spacing between dispatches too, so CORS_PROXY_MIN_GAP_MS
+// enforces a minimum gap between when any two requests are allowed to
+// START, on top of the concurrency cap — the two work together: at most
+// CORS_PROXY_MAX_CONCURRENT in flight at once, AND no new one starts within
+// CORS_PROXY_MIN_GAP_MS of the previous one starting, even if a concurrency
+// slot is immediately free.
+const CORS_PROXY_MAX_CONCURRENT = 2;
+const CORS_PROXY_MIN_GAP_MS = 400;
 let corsProxyActive = 0;
+let corsProxyNextStart = 0;
 const corsProxyQueue = [];
-function corsProxyAcquireSlot() {
+function corsProxyWaitForSlot() {
   if (corsProxyActive < CORS_PROXY_MAX_CONCURRENT) { corsProxyActive++; return Promise.resolve(); }
   return new Promise(resolve => corsProxyQueue.push(resolve));
 }
@@ -1237,6 +1248,12 @@ function corsProxyReleaseSlot() {
   corsProxyActive--;
   const next = corsProxyQueue.shift();
   if (next) { corsProxyActive++; next(); }
+}
+async function corsProxyAcquireSlot() {
+  await corsProxyWaitForSlot();
+  const wait = Math.max(0, corsProxyNextStart - Date.now());
+  corsProxyNextStart = Math.max(Date.now(), corsProxyNextStart) + CORS_PROXY_MIN_GAP_MS;
+  if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
 }
 
 async function fetchJsonViaCorsProxy(target) {
