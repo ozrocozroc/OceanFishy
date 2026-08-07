@@ -1531,6 +1531,23 @@ async function updateDepthContours(bounds) {
 // through the CORS proxy chain at once.
 const HOTSPOT_GRID_POINTS = 14;
 
+// Unlike the SST/Depth/Fronts canvas raster layers (createCanvasRasterLayer,
+// which already cache by viewport), hotspots had no cache at all — panning
+// away and back to an already-analyzed view re-ran all 5 network fetches
+// through the CORS-proxy chain from scratch, even though the same real
+// satellite/griddap data is behind it either way. Small LRU cache, same
+// bounds-rounded-to-~1km keying pattern as the raster layers, storing just
+// the raw fetched grids (not the scored candidates or picked markers) so
+// the scoring math and, critically, the per-picked-point wind/swell
+// "extreme conditions" check downstream always rerun fresh on every call —
+// only the expensive/rate-limited network step is skipped on a cache hit.
+const HOTSPOT_FETCH_CACHE_MAX = 12;
+const hotspotFetchCache = new Map();
+function hotspotCacheKeyFor(bounds) {
+  const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+  return [sw.lat.toFixed(2), sw.lng.toFixed(2), ne.lat.toFixed(2), ne.lng.toFixed(2)].join(',');
+}
+
 function nearestGridValue(latSet, lonSet, grid, lat, lon) {
   let bi = 0, bd = Infinity;
   for (let i = 0; i < latSet.length; i++) { const d = Math.abs(latSet[i] - lat); if (d < bd) { bd = d; bi = i; } }
@@ -1914,13 +1931,30 @@ async function updateHotspots(bounds) {
     // has a gap" (existing behavior, still a hard per-cell filter) from
     // "the whole source failed to respond" (new — signal just drops out of
     // scoring for every candidate, weight redistributes like Chl already did).
-    const [sla, bathy, current, sst, chl] = await Promise.all([
-      fetchHotspotSlaGrid(bounds, HOTSPOT_GRID_POINTS).catch(() => null),
-      fetchHotspotBathyGrid(bounds, HOTSPOT_GRID_POINTS),
-      fetchHotspotCurrentGrid(bounds, HOTSPOT_GRID_POINTS).catch(() => null),
-      fetchHotspotSstGrid(bounds, HOTSPOT_GRID_POINTS),
-      fetchHotspotChlGrid(bounds, HOTSPOT_GRID_POINTS).catch(() => null),
-    ]);
+    const cacheKey = hotspotCacheKeyFor(bounds);
+    let sla, bathy, current, sst, chl;
+    if (hotspotFetchCache.has(cacheKey)) {
+      ({sla, bathy, current, sst, chl} = hotspotFetchCache.get(cacheKey));
+      hotspotFetchCache.delete(cacheKey); // re-insert to mark as most-recently-used
+      hotspotFetchCache.set(cacheKey, {sla, bathy, current, sst, chl});
+    } else {
+      [sla, bathy, current, sst, chl] = await Promise.all([
+        fetchHotspotSlaGrid(bounds, HOTSPOT_GRID_POINTS).catch(() => null),
+        fetchHotspotBathyGrid(bounds, HOTSPOT_GRID_POINTS),
+        fetchHotspotCurrentGrid(bounds, HOTSPOT_GRID_POINTS).catch(() => null),
+        fetchHotspotSstGrid(bounds, HOTSPOT_GRID_POINTS),
+        fetchHotspotChlGrid(bounds, HOTSPOT_GRID_POINTS).catch(() => null),
+      ]);
+      if (myReqId !== hotspotReqId) return;
+      // Only cache a fully-successful fetch — caching a source that failed
+      // to a transient proxy blip would lock in a degraded/capped score for
+      // every future revisit of this view until the cache entry ages out,
+      // even after the proxy recovers moments later.
+      if (sla && current && chl) {
+        hotspotFetchCache.set(cacheKey, {sla, bathy, current, sst, chl});
+        if (hotspotFetchCache.size > HOTSPOT_FETCH_CACHE_MAX) hotspotFetchCache.delete(hotspotFetchCache.keys().next().value);
+      }
+    }
     if (myReqId !== hotspotReqId) return;
     hotspotGroup.clearLayers();
     if (sst.latSet.length < 3 || sst.lonSet.length < 3) {
