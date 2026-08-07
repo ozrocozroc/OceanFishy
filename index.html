@@ -4162,6 +4162,46 @@ async function updateLiveReadings(lat, lng) {
   syncLivePopup();
 }
 
+// Small per-field point cache for Live Readings' 5 ERDDAP lookups below —
+// unlike Hotspots/overlays, Live Readings only ever fires from a deliberate
+// click (never on pan/zoom, see updateLiveReadings's only 2 call sites,
+// both in the map click handler), so it was already the gentlest fetch
+// pattern in the app. The one real gap: re-clicking an already-checked
+// point refetched everything from scratch. Same LRU pattern as the
+// hotspot/raster-layer viewport caches, just keyed per-point instead of
+// per-viewport, and wrapping each getRealXxx/getGebcoDepth call
+// individually rather than restructuring updateLiveReadings's
+// DOM-streaming logic (each field already has its own independent
+// try/catch there). Placing the cache .set() AFTER a successful fetch
+// means a thrown network/proxy error is never cached — the exception
+// skips past it — so a transient failure can't lock in "n/a" for a future
+// re-click, same "only cache success" reasoning as the hotspot fetch cache.
+// Wind/Swell are deliberately NOT cached here — they go straight to
+// Open-Meteo (no proxy, no reliability issues seen all session), so
+// there's no bottleneck to protect, and caching live weather risks
+// showing a stale reading with no TTL to expire it.
+function makePointCache(max) {
+  const cache = new Map();
+  return {
+    get(key) {
+      if (!cache.has(key)) return undefined;
+      const v = cache.get(key);
+      cache.delete(key); cache.set(key, v); // re-insert to mark as most-recently-used
+      return v;
+    },
+    set(key, value) {
+      cache.set(key, value);
+      if (cache.size > max) cache.delete(cache.keys().next().value);
+    },
+  };
+}
+const POINT_CACHE_MAX = 60;
+const depthPointCache = makePointCache(POINT_CACHE_MAX);
+const slaPointCache = makePointCache(POINT_CACHE_MAX);
+const sstPointCache = makePointCache(POINT_CACHE_MAX);
+const chlPointCache = makePointCache(POINT_CACHE_MAX);
+const currentPointCache = makePointCache(POINT_CACHE_MAX);
+
 // ── SRTM15+ GetFeatureInfo — real water depth at a lat/lng point ──────────────
 async function getGebcoDepth(lat, lng) {
   // Use ERDDAP griddap JSON endpoint. srtm15plus is a static grid with only
@@ -4171,16 +4211,21 @@ async function getGebcoDepth(lat, lng) {
   // the altimetry point lookup (getRealSla) and contour data.
   const latR  = lat.toFixed(4);
   const lngR  = lng.toFixed(4);
+  const cacheKey = `${latR},${lngR}`; // static bathymetry — no date component needed
+  const cached = depthPointCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   const target = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/srtm15plus.json?z[(${latR})][(${lngR})]`;
   const data = await fetchJsonViaCorsProxy(target);
 
   // Response: { table: { rows: [[lat, lon, z]] } }
   const rows = data?.table?.rows;
+  let elev = null;
   if (rows && rows.length > 0) {
-    const elev = rows[0][2]; // z (altitude) column
-    return typeof elev === 'number' ? elev : parseFloat(elev);
+    const raw = rows[0][2]; // z (altitude) column
+    elev = typeof raw === 'number' ? raw : parseFloat(raw);
   }
-  return null;
+  depthPointCache.set(cacheKey, elev);
+  return elev;
 }
 
 // ── Real altimetry point value ────────────────────────────────────────────────
@@ -4192,14 +4237,19 @@ async function getGebcoDepth(lat, lng) {
 // instead of a simulated value that can contradict what's on screen.
 async function getRealSla(lat, lng) {
   const latR = lat.toFixed(3), lngR = lng.toFixed(3);
+  const cacheKey = `${latR},${lngR},${curDate}`; // curDate-keyed — picking a different date chip must not reuse another date's value
+  const cached = slaPointCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   const target = `https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsshDaily.json?sla[(${curDate}T12:00:00Z)][(${latR})][(${lngR})]`;
   const data = await fetchJsonViaCorsProxy(target);
   const rows = data?.table?.rows;
+  let v = null;
   if (rows && rows.length > 0) {
-    const v = rows[0][3];
-    return typeof v === 'number' ? v : parseFloat(v);
+    const raw = rows[0][3];
+    v = typeof raw === 'number' ? raw : parseFloat(raw);
   }
-  return null;
+  slaPointCache.set(cacheKey, v);
+  return v;
 }
 
 function sstNote(tempC) {
@@ -4220,14 +4270,19 @@ function slaNote(cm) {
 // layer is currently showing, matching getRealSla's own convention.
 async function getRealSst(lat, lng) {
   const latR = lat.toFixed(3), lngR = lng.toFixed(3);
+  const cacheKey = `${latR},${lngR},${curDate}`;
+  const cached = sstPointCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   const target = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41.json?analysed_sst[(${curDate}T12:00:00Z)][(${latR})][(${lngR})]`;
   const data = await fetchJsonViaCorsProxy(target);
   const rows = data?.table?.rows;
+  let v = null;
   if (rows && rows.length > 0) {
-    const v = rows[0][3];
-    return v == null ? null : (typeof v === 'number' ? v : parseFloat(v));
+    const raw = rows[0][3];
+    v = raw == null ? null : (typeof raw === 'number' ? raw : parseFloat(raw));
   }
-  return null;
+  sstPointCache.set(cacheKey, v);
+  return v;
 }
 
 // ── Real chlorophyll-a at a lat/lng point (for the Visibility estimate) ────
@@ -4241,14 +4296,19 @@ async function getRealSst(lat, lng) {
 // lat/lng that 404s ("Start is less than the axis minimum") if omitted.
 async function getRealChl(lat, lng) {
   const latR = lat.toFixed(3), lngR = lng.toFixed(3);
+  const cacheKey = `${latR},${lngR}`; // "(last)", not curDate — stable regardless of the selected date chip
+  const cached = chlPointCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   const target = `https://coastwatch.noaa.gov/erddap/griddap/noaacwS3AOLCIchlaDaily.json?chlor_a[(last)][(0.0)][(${latR})][(${lngR})]`;
   const data = await fetchJsonViaCorsProxy(target);
   const rows = data?.table?.rows;
+  let v = null;
   if (rows && rows.length > 0) {
-    const v = rows[0][4];
-    return v == null ? null : (typeof v === 'number' ? v : parseFloat(v));
+    const raw = rows[0][4];
+    v = raw == null ? null : (typeof raw === 'number' ? raw : parseFloat(raw));
   }
-  return null;
+  chlPointCache.set(cacheKey, v);
+  return v;
 }
 
 // Secchi-depth-from-chlorophyll estimate — same empirical relationship
@@ -4273,15 +4333,23 @@ function visibilityNote(vis) {
 // date can 404.
 async function getRealCurrent(lat, lng) {
   const latR = lat.toFixed(3), lngR = lng.toFixed(3);
+  const cacheKey = `${latR},${lngR}`; // "(last)", not curDate — stable regardless of the selected date chip
+  const cached = currentPointCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   const target = `${CURRENT_DS.host}/erddap/griddap/${CURRENT_DS.datasetId}.json?u_current[(last)][(${latR})][(${lngR})],v_current[(last)][(${latR})][(${lngR})]`;
   const data = await fetchJsonViaCorsProxy(target);
   const row = data?.table?.rows?.[0];
-  if (!row) return null;
-  const [, , , u, v] = row;
-  if (u == null || v == null) return null;
-  const speedMs = Math.sqrt(u*u + v*v);
-  const dirDeg = (Math.atan2(u, v) * 180 / Math.PI + 360) % 360; // bearing the current is flowing toward
-  return { speedKt: speedMs * 1.94384, dirDeg };
+  let result = null;
+  if (row) {
+    const [, , , u, v] = row;
+    if (u != null && v != null) {
+      const speedMs = Math.sqrt(u*u + v*v);
+      const dirDeg = (Math.atan2(u, v) * 180 / Math.PI + 360) % 360; // bearing the current is flowing toward
+      result = { speedKt: speedMs * 1.94384, dirDeg };
+    }
+  }
+  currentPointCache.set(cacheKey, result);
+  return result;
 }
 
 function currentNote(kt) {
