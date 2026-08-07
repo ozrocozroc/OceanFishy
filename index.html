@@ -1222,7 +1222,7 @@ function marchingSquares(grid, lats, lons, level) {
 // no reason to hit a shared proxy first once you have your own). Left
 // empty, it's simply skipped and the existing 4-proxy chain behaves exactly
 // as before — safe to leave blank until deployed.
-const OWN_PROXY_URL = '';
+const OWN_PROXY_URL = 'https://oceanfishy-cors-proxy.oz-roc.workers.dev/';
 function fetchWithTimeout(url, timeoutMs) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
