@@ -1212,6 +1212,17 @@ function marchingSquares(grid, lats, lons, level) {
 // specifically covers the host that was down when this was added.
 // A hung connection (no response at all, not even an error) would otherwise
 // block an attempt indefinitely and never reach the next proxy in the chain.
+//
+// OWN_PROXY_URL: a dedicated Cloudflare Worker (see cors-proxy-worker.js in
+// the repo root) — deploy it, then set this to the resulting
+// https://<name>.<subdomain>.workers.dev URL. Unlike the 4 shared free
+// proxies below, it's not subject to any third-party rate limit shared
+// across other users — Cloudflare's free tier is 100k requests/day, far
+// more than this app needs. Tried FIRST when set (fastest, most reliable,
+// no reason to hit a shared proxy first once you have your own). Left
+// empty, it's simply skipped and the existing 4-proxy chain behaves exactly
+// as before — safe to leave blank until deployed.
+const OWN_PROXY_URL = '';
 function fetchWithTimeout(url, timeoutMs) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -1300,14 +1311,40 @@ function corsProxyRecordSuccess(name) {
   corsProxyCooldownUntil[name] = 0;
 }
 
+// resp.json() throws its own raw, uncaught-looking SyntaxError if a proxy
+// returns a 200 with a non-JSON body (an HTML rate-limit/error page served
+// without an actual error status, seen from more than one of these
+// services) — wrapping it here converts that into a normal Error tagged
+// with which proxy it came from, same as every other failure mode these
+// attempts already throw, so it flows through the same fallback/circuit-
+// breaker handling instead of surfacing as an unexplained console error.
+async function safeJson(resp, name) {
+  try {
+    return await resp.json();
+  } catch (parseErr) {
+    throw new Error(name + ': malformed response (' + parseErr.message + ')');
+  }
+}
+
 async function fetchJsonViaCorsProxyInner(target) {
-  const attempts = [
+  const attempts = [];
+  if (OWN_PROXY_URL) {
+    attempts.push({
+      name: 'own-worker',
+      run: async () => {
+        const resp = await fetchWithTimeout(OWN_PROXY_URL + '?url=' + encodeURIComponent(target), 9000);
+        if (!resp.ok) throw new Error('own-worker: ' + resp.status);
+        return safeJson(resp, 'own-worker');
+      },
+    });
+  }
+  attempts.push(
     {
       name: 'corsproxy.io',
       run: async () => {
         const resp = await fetchWithTimeout('https://corsproxy.io/?url=' + encodeURIComponent(target), 9000);
         if (!resp.ok) throw new Error('corsproxy.io: ' + resp.status);
-        return resp.json();
+        return safeJson(resp, 'corsproxy.io');
       },
     },
     {
@@ -1324,7 +1361,18 @@ async function fetchJsonViaCorsProxyInner(target) {
         const body = idx >= 0 ? text.slice(idx + marker.length) : text;
         const braceIdx = body.indexOf('{');
         if (braceIdx < 0) throw new Error('r.jina.ai: no JSON found in response');
-        return JSON.parse(body.slice(braceIdx));
+        // The found '{' isn't guaranteed to be the START of valid JSON — it
+        // can land on a stray brace inside surrounding error/HTML text
+        // r.jina.ai wraps the real response in, which JSON.parse then fails
+        // on with its own raw SyntaxError. Re-thrown as a normal Error so
+        // it's indistinguishable from any other proxy failure to the
+        // calling loop above (still triggers the same fallback/circuit-
+        // breaker handling), instead of leaking a bare SyntaxError.
+        try {
+          return JSON.parse(body.slice(braceIdx));
+        } catch (parseErr) {
+          throw new Error('r.jina.ai: malformed response (' + parseErr.message + ')');
+        }
       },
     },
     {
@@ -1336,7 +1384,7 @@ async function fetchJsonViaCorsProxyInner(target) {
       run: async () => {
         const resp = await fetchWithTimeout('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target), 9000);
         if (!resp.ok) throw new Error('codetabs: ' + resp.status);
-        return resp.json();
+        return safeJson(resp, 'codetabs');
       },
     },
     {
@@ -1351,10 +1399,10 @@ async function fetchJsonViaCorsProxyInner(target) {
       run: async () => {
         const resp = await fetchWithTimeout('https://cors.eu.org/' + target, 9000);
         if (!resp.ok) throw new Error('cors.eu.org: ' + resp.status);
-        return resp.json();
+        return safeJson(resp, 'cors.eu.org');
       },
     },
-  ];
+  );
   const now = Date.now();
   const allInCooldown = attempts.every(a => (corsProxyCooldownUntil[a.name] || 0) > now);
   let lastErr;
